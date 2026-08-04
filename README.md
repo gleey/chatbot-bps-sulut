@@ -108,8 +108,6 @@ python -m unittest discover tests -v
 ```
 [User kirim pesan] → [Step: awal]
      ↓
-[Tanya nama & instansi] → [Step: tanya_nama_instansi]
-     ↓
 [Pilih layanan] → Pengaduan → ke operator
                 → Konsultasi → [Step: gemini_tanya_data / rule_based_tanya_data]
      ↓
