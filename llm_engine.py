@@ -1,46 +1,47 @@
+"""
+LLM engine — Gemini API wrapper + offline fallback.
+Sekarang Gemini memberikan ringkasan jawaban (bukan hanya intent parsing).
+"""
 import json
+import logging
 from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
 from config import GEMINI_API_KEY, MODEL_NAME, SYSTEM_PROMPT
 
+logger = logging.getLogger(__name__)
+
 _offline_mode = False
 
 
 def set_offline_mode(value):
-    """Set mode offline (True = skip API, pakai fallback)."""
     global _offline_mode
     _offline_mode = value
 
 
 def is_offline_mode():
-    """Cek apakah sedang dalam mode offline."""
     return _offline_mode
 
 
 def _get_client():
-    """Inisialisasi Gemini client."""
     if not GEMINI_API_KEY:
         raise ValueError(
             "GEMINI_API_KEY belum di-set! "
             "Jalankan: export GEMINI_API_KEY='your-api-key' "
-            "atau set di file config.py"
+            "atau set di file .env"
         )
     return genai.Client(api_key=GEMINI_API_KEY)
 
 
 def test_api_connection():
     """Test koneksi ke Gemini API.
-    
-    Returns:
-        (bool, str): (berhasil, pesan_error)
+    Returns: (berhasil: bool, pesan_error: str)
     """
     if not GEMINI_API_KEY:
         return False, "GEMINI_API_KEY belum di-set."
-
     try:
         client = _get_client()
-        response = client.models.generate_content(
+        client.models.generate_content(
             model=MODEL_NAME,
             contents="test",
             config=types.GenerateContentConfig(
@@ -55,25 +56,28 @@ def test_api_connection():
         return False, str(e)
 
 
-def analisis_pesan(history, pesan_baru, info_terkumpul=None):
-    """Kirim pesan ke Gemini dan dapatkan analisis structured.
-    
-    Jika mode offline aktif, langsung gunakan fallback tanpa coba API.
-    
+def analisis_pesan(history, info_terkumpul=None):
+    """Kirim pesan ke Gemini, dapatkan analisis structured + ringkasan jawaban.
+
     Args:
-        history: List conversation history (format Gemini Content)
-        pesan_baru: Pesan terbaru dari user
-        info_terkumpul: Dict info yang sudah terkumpul (nama, instansi, tujuan)
-        
+        history: List conversation history (sudah mengandung pesan user terbaru).
+        info_terkumpul: Info dari sesi.
     Returns:
-        Dict dengan keys: intent, nama, instansi, tujuan, balasan
+        Dict: intent, nama, instansi, tujuan, kategori_cocok, balasan
     """
+    # Ambil pesan user terakhir untuk fallback
+    pesan_baru = ""
+    for msg in reversed(history):
+        if msg["role"] == "user":
+            pesan_baru = msg["parts"][0]["text"]
+            break
 
     if _offline_mode:
         return _fallback_offline(pesan_baru)
 
     client = _get_client()
 
+    # Sertakan info yang sudah terkumpul agar Gemini punya konteks
     context_prefix = ""
     if info_terkumpul:
         collected = []
@@ -87,21 +91,18 @@ def analisis_pesan(history, pesan_baru, info_terkumpul=None):
             context_prefix = f"[INFO TERKUMPUL: {', '.join(collected)}]\n"
 
     contents = []
-    for msg in history:
+    for i, msg in enumerate(history):
+        text = msg["parts"][0]["text"]
+        # Sisipkan context di pesan user TERAKHIR (bukan tambah pesan baru)
+        if i == len(history) - 1 and msg["role"] == "user":
+            text = context_prefix + text
+            
         contents.append(
             types.Content(
                 role=msg["role"],
-                parts=[types.Part.from_text(text=msg["parts"][0]["text"])],
+                parts=[types.Part.from_text(text=text)],
             )
         )
-
-    pesan_lengkap = context_prefix + pesan_baru
-    contents.append(
-        types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=pesan_lengkap)],
-        )
-    )
 
     try:
         response = client.models.generate_content(
@@ -112,21 +113,23 @@ def analisis_pesan(history, pesan_baru, info_terkumpul=None):
                 temperature=0.7,
             ),
         )
-
     except genai_errors.ClientError as e:
         error_msg = str(e)
         if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-            print("Quota API habis. Menggunakan mode offline untuk pesan ini.")
+            logger.warning("Quota API habis. Beralih ke mode offline.")
+            set_offline_mode(True)
         else:
-            print(f"Error API: {error_msg}")
+            logger.error("Error API: %s", error_msg)
         return _fallback_offline(pesan_baru)
-
     except Exception as e:
-        print(f"Error tidak terduga: {e}")
+        logger.error("Error tidak terduga: %s", e)
         return _fallback_offline(pesan_baru)
 
     try:
-        response_text = response.text.strip()
+        # Handle None response.text
+        response_text = (response.text or "").strip()
+        
+        # Strip markdown code fence jika ada
         if response_text.startswith("```"):
             lines = response_text.split("\n")
             lines = lines[1:]
@@ -138,20 +141,19 @@ def analisis_pesan(history, pesan_baru, info_terkumpul=None):
     except json.JSONDecodeError:
         hasil = {
             "intent": "lainnya",
-            "nama": "",
-            "instansi": "",
             "tujuan": "",
-            "balasan": response.text.strip(),
+            "kategori_cocok": "",
+            "balasan": (response.text or "").strip(),
         }
 
-    default_fields = {
+    # Pastikan semua field ada
+    defaults = {
         "intent": "lainnya",
-        "nama": "",
-        "instansi": "",
         "tujuan": "",
+        "kategori_cocok": "",
         "balasan": "Maaf, saya tidak mengerti. Bisa diulangi?",
     }
-    for key, default_val in default_fields.items():
+    for key, default_val in defaults.items():
         if key not in hasil:
             hasil[key] = default_val
 
@@ -159,17 +161,11 @@ def analisis_pesan(history, pesan_baru, info_terkumpul=None):
 
 
 def _fallback_offline(pesan):
-    """Fallback sederhana saat API tidak bisa diakses.
-    
-    Menggunakan keyword matching dasar (mirip rule-based lama)
-    supaya chatbot tetap bisa berfungsi minimal.
-    """
+    """Fallback keyword matching saat API tidak tersedia."""
     pesan_lower = pesan.lower()
     kata_kata = set(pesan_lower.split())
 
     intent = "lainnya"
-    nama = ""
-    instansi = ""
     tujuan = ""
     balasan = ""
 
@@ -185,44 +181,35 @@ def _fallback_offline(pesan):
         tujuan = " ".join(tujuan.split())
         balasan = f"Baik, saya carikan data terkait *{tujuan}* untuk Anda."
 
-    elif (kata_kata & kata_sapa) and (kata_kata & introduction):
-        intent = "perkenalan"
-        balasan = (
-            "Halo! Saya asisten virtual BPS Sulawesi Utara. 👋\n"
-            "Ada data atau informasi apa yang sedang Anda butuhkan?\n\n"
-        )
-
     elif kata_kata & kata_sapa:
         intent = "greeting"
         balasan = (
-            "Halo! Selamat datang di layanan BPS Sulawesi Utara. 👋\n"
-            "Perkenalkan, saya asisten virtual BPS Sulut.\n"
-            "Boleh saya tahu nama dan asal instansi Bapak/Ibu?"
+            "Halo! Selamat datang di layanan BPS Sulawesi Utara.\n"
+            "Silakan pilih layanan yang Anda butuhkan:\n1. Pengaduan\n2. Konsultasi"
         )
 
-    elif kata_kata & {"ya", "makasih", "puas", "sudah", "oke", "thanks", "thx"} or "terima kasih" in pesan_lower:
+    elif pesan_lower.strip() in ("ya", "makasih", "puas", "sudah", "oke", "thanks", "thx", "terima kasih"):
+        # Match exact/standalone untuk menghindari false positive
         intent = "puas"
-        balasan = "Terima kasih! Senang bisa membantu. 😊"
+        balasan = "Terima kasih! Senang bisa membantu."
 
-    elif kata_kata & {"tidak", "belum", "kurang", "salah", "operator", "bukan"}:
+    elif pesan_lower.strip() in ("tidak", "belum", "kurang", "salah", "operator", "bukan"):
         intent = "tidak_puas"
         balasan = (
             "Mohon maaf atas ketidaknyamanannya. "
             "Saya akan menghubungkan Anda dengan operator kami. "
-            "Mohon ditunggu ya 🙏"
+            "Mohon ditunggu ya."
         )
 
     else:
         balasan = (
-            "Halo! Saya asisten virtual BPS Sulawesi Utara. 👋\n"
-            "Ada data atau informasi apa yang sedang Anda butuhkan?\n\n"
+            "Halo! Saya asisten virtual BPS Sulawesi Utara.\n"
+            "Ada data atau informasi apa yang sedang Anda butuhkan?"
         )
 
     return {
         "intent": intent,
-        "nama": nama,
-        "instansi": instansi,
         "tujuan": tujuan,
+        "kategori_cocok": "",
         "balasan": balasan,
     }
-

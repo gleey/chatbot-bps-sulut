@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Chatbot BPS
+logs/
+chatbot.db
+
+# Graphify
+graphify-out/
+
+.agents/
+
+tests/

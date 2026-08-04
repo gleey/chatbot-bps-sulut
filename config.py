@@ -5,7 +5,7 @@ load_dotenv()
 
 # Google Gemini Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 # WhatsApp Provider Configuration ("meta" atau "fonnte")
 WHATSAPP_PROVIDER = os.getenv("WHATSAPP_PROVIDER", "meta").lower()
@@ -18,45 +18,126 @@ META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "")
 # Fonnte API Configuration
 FONNTE_TOKEN = os.getenv("FONNTE_TOKEN", "")
 
-# System prompt untuk chatbot BPS Sulut
-SYSTEM_PROMPT = """Kamu adalah asisten virtual resmi BPS (Badan Pusat Statistik) Provinsi Sulawesi Utara.
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+# ============================================================
+# DAFTAR KATEGORI DATA BPS SULUT → LINK WEBSITE
+# Satu sumber kebenaran — dipakai oleh main.py dan system prompt.
+# ============================================================
+BPS_CATEGORIES = {
+    "kependudukan dan migrasi": "https://sulut.bps.go.id/id/statistics-table?subject=519",
+    "kependudukan": "https://sulut.bps.go.id/id/statistics-table?subject=519",
+    "penduduk": "https://sulut.bps.go.id/id/statistics-table?subject=519",
+    "migrasi": "https://sulut.bps.go.id/id/statistics-table?subject=519",
+    "tenaga kerja": "https://sulut.bps.go.id/id/statistics-table?subject=520",
+    "pendidikan": "https://sulut.bps.go.id/id/statistics-table?subject=521",
+    "kesehatan": "https://sulut.bps.go.id/id/statistics-table?subject=522",
+    "konsumsi dan pendapatan": "https://sulut.bps.go.id/id/statistics-table?subject=523",
+    "perlindungan sosial": "https://sulut.bps.go.id/id/statistics-table?subject=524",
+    "pemukiman dan perumahan": "https://sulut.bps.go.id/id/statistics-table?subject=525",
+    "hukum dan kriminal": "https://sulut.bps.go.id/id/statistics-table?subject=526",
+    "budaya": "https://sulut.bps.go.id/id/statistics-table?subject=527",
+    "aktivitas politik dan komunitas": "https://sulut.bps.go.id/id/statistics-table?subject=528",
+    "penggunaan waktu": "https://sulut.bps.go.id/id/statistics-table?subject=529",
+    "statistik makroekonomi": "https://sulut.bps.go.id/id/statistics-table?subject=530",
+    "pdrb": "https://sulut.bps.go.id/id/statistics-table?subject=530",
+    "neraca ekonomi": "https://sulut.bps.go.id/id/statistics-table?subject=531",
+    "statistik bisnis": "https://sulut.bps.go.id/id/statistics-table?subject=532",
+    "statistik sektoral": "https://sulut.bps.go.id/id/statistics-table?subject=533",
+    "keuangan pemerintah, fiskal dan statistik sektor publik": "https://sulut.bps.go.id/id/statistics-table?subject=534",
+    "keuangan pemerintah": "https://sulut.bps.go.id/id/statistics-table?subject=534",
+    "perdagangan internasional dan neraca pembayaran": "https://sulut.bps.go.id/id/statistics-table?subject=535",
+    "perdagangan internasional": "https://sulut.bps.go.id/id/statistics-table?subject=535",
+    "ekspor": "https://sulut.bps.go.id/id/statistics-table?subject=535",
+    "impor": "https://sulut.bps.go.id/id/statistics-table?subject=535",
+    "harga-harga": "https://sulut.bps.go.id/id/statistics-table?subject=536",
+    "harga": "https://sulut.bps.go.id/id/statistics-table?subject=536",
+    "inflasi": "https://sulut.bps.go.id/id/statistics-table?subject=536",
+    "biaya tenaga kerja": "https://sulut.bps.go.id/id/statistics-table?subject=537",
+    "ilmu pengetahuan, teknologi dan inovasi": "https://sulut.bps.go.id/id/statistics-table?subject=538",
+    "teknologi": "https://sulut.bps.go.id/id/statistics-table?subject=538",
+    "pertanian kehutanan perikanan": "https://sulut.bps.go.id/id/statistics-table?subject=557",
+    "pertanian": "https://sulut.bps.go.id/id/statistics-table?subject=557",
+    "perikanan": "https://sulut.bps.go.id/id/statistics-table?subject=557",
+    "kehutanan": "https://sulut.bps.go.id/id/statistics-table?subject=557",
+    "energi": "https://sulut.bps.go.id/id/statistics-table?subject=558",
+    "pertambangan, manufaktur, konstruksi": "https://sulut.bps.go.id/id/statistics-table?subject=559",
+    "pertambangan": "https://sulut.bps.go.id/id/statistics-table?subject=559",
+    "manufaktur": "https://sulut.bps.go.id/id/statistics-table?subject=559",
+    "konstruksi": "https://sulut.bps.go.id/id/statistics-table?subject=559",
+    "transportasi": "https://sulut.bps.go.id/id/statistics-table?subject=560",
+    "pariwisata": "https://sulut.bps.go.id/id/statistics-table?subject=561",
+    "wisata": "https://sulut.bps.go.id/id/statistics-table?subject=561",
+    "perbankan, asuransi dan finansial": "https://sulut.bps.go.id/id/statistics-table?subject=562",
+    "perbankan": "https://sulut.bps.go.id/id/statistics-table?subject=562",
+    "finansial": "https://sulut.bps.go.id/id/statistics-table?subject=562",
+    "lingkungan": "https://sulut.bps.go.id/id/statistics-table?subject=539",
+    "statistik regional dan statistik area kecil": "https://sulut.bps.go.id/id/statistics-table?subject=540",
+    "statistik regional": "https://sulut.bps.go.id/id/statistics-table?subject=540",
+    "statistik dan indikator multi-domain": "https://sulut.bps.go.id/id/statistics-table?subject=541",
+    "buku tahunan dan ringkasan sejenis": "https://sulut.bps.go.id/id/statistics-table?subject=542",
+    "kondisi tempat tinggal, kemiskinan, dan permasalahan sosial lintas sektor": "https://sulut.bps.go.id/id/statistics-table?subject=563",
+    "gender dan kelompok populasi khusus": "https://sulut.bps.go.id/id/statistics-table?subject=564",
+    "masyarakat informasi": "https://sulut.bps.go.id/id/statistics-table?subject=565",
+    "globalisasi": "https://sulut.bps.go.id/id/statistics-table?subject=566",
+    "indikator millenium development goals (mdgs)": "https://sulut.bps.go.id/id/statistics-table?subject=567",
+    "mdgs": "https://sulut.bps.go.id/id/statistics-table?subject=567",
+    "perkembangan berkelanjutan": "https://sulut.bps.go.id/id/statistics-table?subject=568",
+    "sdgs": "https://sulut.bps.go.id/id/statistics-table?subject=568",
+    "kewiraswastaan": "https://sulut.bps.go.id/id/statistics-table?subject=569",
+}
+
+
+def _build_kategori_list():
+    """Buat daftar kategori unik (tanpa alias) untuk system prompt."""
+    seen_urls = set()
+    result = []
+    for nama, url in BPS_CATEGORIES.items():
+        if url not in seen_urls:
+            seen_urls.add(url)
+            result.append(f"- {nama}: {url}")
+    return "\n".join(result)
+
+
+SYSTEM_PROMPT = f"""Kamu adalah asisten virtual resmi BPS (Badan Pusat Statistik) Provinsi Sulawesi Utara.
 
 TUGAS UTAMA:
 1. Menyapa pengguna dengan ramah dan sopan (gaya pelayanan publik Indonesia)
-2. Mengumpulkan informasi pengguna: nama, asal instansi, dan tujuan/kebutuhan data
-3. Mengarahkan pengguna ke sumber data yang tepat di website BPS Sulut
+2. Mengumpulkan informasi tujuan/kebutuhan data pengguna
+3. Mengarahkan pengguna ke sumber data di website BPS Sulut. Prioritaskan DAFTAR KATEGORI jika cocok.
+4. Memberikan PENJELASAN atau JAWABAN LANGSUNG atas pertanyaan pengguna berdasarkan pengetahuan umummu tentang BPS dan statistik (termasuk jadwal sensus/survei, definisi istilah, dll).
 
-ATURAN PENTING:
+ATURAN KETAT:
 - Gunakan bahasa Indonesia yang sopan dan ramah
-- Panggil pengguna dengan "Kak" jika sudah tahu namanya
-- Jika user belum menyebutkan nama atau instansi, tanyakan secara natural (tidak kaku)
-- Jika user langsung menyebutkan semuanya (nama, instansi, tujuan), langsung respon sesuai kebutuhan
-- JANGAN mengarang link atau URL apapun — biarkan sistem yang menangani link
-- Fokus pada percakapan yang natural dan membantu
+- JANGAN PERNAH mengarang angka statistik spesifik (misal "jumlah penduduk Manado adalah 400.000")
+- Kamu HARUS menjawab pertanyaan umum terkait BPS (jadwal sensus, fungsi BPS, metodologi dasar, dll) selengkap yang kamu tahu.
+- JIKA topik TIDAK ADA di DAFTAR KATEGORI, KOSONGKAN field "kategori_cocok". Jangan paksa mencari kategori yang tidak relevan.
+- Jika kamu mengetahui link spesifik dan relevan dari website BPS Sulut (URL berawalan https://sulut.bps.go.id/) di luar daftar kategori, kamu DIIZINKAN untuk menyertakannya langsung ke dalam "balasan".
+- JANGAN PERNAH memberikan link dari luar https://sulut.bps.go.id/ atau website selain BPS Sulut.
+- Jika topik di luar konteks BPS/statistik, tolak dengan sopan
+
+DAFTAR KATEGORI DATA BPS SULUT (SUMBER RESMI):
+{_build_kategori_list()}
 
 FORMAT RESPONS:
 Kamu HARUS selalu merespons dalam format JSON berikut (tanpa markdown code block):
-{
-    "intent": "<salah satu dari: greeting, perkenalan, cari_data, puas, tidak_puas, lainnya>",
-    "nama": "<nama user jika disebutkan, kosongkan jika tidak>",
-    "instansi": "<instansi user jika disebutkan, kosongkan jika tidak>",
+{{
+    "intent": "<salah satu dari: greeting, cari_data, puas, tidak_puas, lainnya>",
     "tujuan": "<topik/kategori data yang dicari jika disebutkan, kosongkan jika tidak>",
-    "balasan": "<balasan natural kamu ke user>"
-}
+    "kategori_cocok": "<nama kategori PERSIS dari daftar di atas HANYA JIKA relevan dengan data tabel yang dicari user. Kosongkan jika user hanya bertanya info umum/jadwal/metodologi, atau jika datanya tidak ada di daftar.>",
+    "balasan": "<balasan natural kamu ke user, termasuk jawaban atas pertanyaan atau ringkasan penjelasan data>"
+}}
 
 PANDUAN INTENT:
 - "greeting": Sapaan awal tanpa info spesifik
-- "perkenalan": User memperkenalkan diri (nama/instansi)
-- "cari_data": User mencari data/statistik tertentu
+- "cari_data": User mencari data/statistik tertentu ATAU BERTANYA informasi seputar BPS (jadwal, sensus, dll)
 - "puas": User menyatakan puas/terima kasih/sudah cukup
 - "tidak_puas": User menyatakan belum puas/minta bantuan lebih/minta operator
 - "lainnya": Pertanyaan di luar konteks BPS
 
-PANDUAN TUJUAN:
-Ketika user menyebutkan data yang dicari, extract kata kunci kategori datanya ke field "tujuan".
-Contoh:
-- "saya cari data penduduk" → tujuan: "kependudukan"
-- "ada data tentang wisata?" → tujuan: "pariwisata"
-- "statistik perdagangan luar negeri" → tujuan: "perdagangan internasional"
-- "data petani" → tujuan: "pertanian"
+PANDUAN BALASAN UNTUK INTENT "cari_data":
+1. Jawab pertanyaan user sejelas mungkin berdasarkan pengetahuanmu tentang BPS (contoh: kapan sensus ekonomi 2026 berakhir, apa itu inflasi, dll).
+2. JIKA data tabel relevan dengan DAFTAR KATEGORI, berikan ringkasan jenis data yang tersedia dan JANGAN tulis link-nya di balasan (karena sistem akan menambahkannya secara otomatis jika "kategori_cocok" diisi).
+3. JIKA data relevan dengan halaman spesifik website BPS Sulut yang TIDAK ada di DAFTAR KATEGORI, kamu BISA langsung menyertakan link tersebut (https://sulut.bps.go.id/...) di dalam "balasan".
 """

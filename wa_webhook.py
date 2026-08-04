@@ -1,67 +1,78 @@
+"""
+WhatsApp Webhook Server — Meta Cloud API + Fonnte.
+Dengan logging terstruktur, validasi input, rate limiting, dan health check.
+"""
+import logging
 import os
 import requests
 from flask import Flask, request, jsonify
+
+from logging_setup import setup_logging
 from main import handle_incoming_message, session_mgr
-from config import META_ACCESS_TOKEN, META_PHONE_NUMBER_ID, META_VERIFY_TOKEN, WHATSAPP_PROVIDER, FONNTE_TOKEN
+from llm_engine import is_offline_mode
+from config import (
+    META_ACCESS_TOKEN, META_PHONE_NUMBER_ID, META_VERIFY_TOKEN,
+    WHATSAPP_PROVIDER, FONNTE_TOKEN,
+)
+from webhook_utils import validate_message, check_rate_limit
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+META_API_VERSION = os.getenv("META_API_VERSION", "v19.0")
+OPERATOR_API_KEY = os.getenv("OPERATOR_API_KEY", "dev_operator_key_123")
+
+
+# ============================================================
+# Kirim pesan — Meta Cloud API
+# ============================================================
 def send_wa_message(target, message):
-    """Kirim balasan ke WhatsApp via Meta Cloud API."""
     if not META_ACCESS_TOKEN or not META_PHONE_NUMBER_ID:
-        print("META_ACCESS_TOKEN atau META_PHONE_NUMBER_ID belum di-set!")
+        logger.error("META_ACCESS_TOKEN atau META_PHONE_NUMBER_ID belum di-set!")
         return False
-        
-    url = f"https://graph.facebook.com/v19.0/{META_PHONE_NUMBER_ID}/messages"
-    
+
+    url = f"https://graph.facebook.com/{META_API_VERSION}/{META_PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {META_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    
     data = {
         "messaging_product": "whatsapp",
         "to": target,
         "type": "text",
-        "text": {"body": message}
+        "text": {"body": message},
     }
-    
+
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=data, timeout=10)
         response.raise_for_status()
-        print(f"Balasan terkirim ke {target}")
+        logger.info("Balasan terkirim ke %s", target)
         return True
     except requests.exceptions.RequestException as e:
-        print(f"Gagal mengirim balasan ke {target}: {e}")
-        if e.response is not None:
-            print(f"Detail error: {e.response.text}")
+        logger.error("Gagal mengirim balasan ke %s: %s", target, e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.error("Detail: %s", e.response.text)
         return False
-
 
 
 def send_wa_interactive_button(target, text_body, buttons):
-    """Kirim balasan berupa tombol interaktif ke WhatsApp."""
     if not META_ACCESS_TOKEN or not META_PHONE_NUMBER_ID:
-        print("META_ACCESS_TOKEN atau META_PHONE_NUMBER_ID belum di-set!")
+        logger.error("META_ACCESS_TOKEN atau META_PHONE_NUMBER_ID belum di-set!")
         return False
-        
-    url = f"https://graph.facebook.com/v19.0/{META_PHONE_NUMBER_ID}/messages"
-    
+
+    url = f"https://graph.facebook.com/{META_API_VERSION}/{META_PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {META_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    
-    action_buttons = []
-    for btn in buttons:
-        action_buttons.append({
-            "type": "reply",
-            "reply": {
-                "id": btn["id"],
-                "title": btn["title"]
-            }
-        })
-    
+
+    action_buttons = [
+        {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"]}}
+        for btn in buttons
+    ]
+
     data = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -69,171 +80,222 @@ def send_wa_interactive_button(target, text_body, buttons):
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {
-                "text": text_body
-            },
-            "action": {
-                "buttons": action_buttons
-            }
-        }
+            "body": {"text": text_body},
+            "action": {"buttons": action_buttons},
+        },
     }
-    
+
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=data, timeout=10)
         response.raise_for_status()
-        print(f"Tombol interaktif terkirim ke {target}")
+        logger.info("Tombol interaktif terkirim ke %s", target)
         return True
     except requests.exceptions.RequestException as e:
-        print(f"Gagal mengirim tombol ke {target}: {e}")
-        if e.response is not None:
-            print(f"Detail error: {e.response.text}")
+        logger.error("Gagal mengirim tombol ke %s: %s", target, e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.error("Detail: %s", e.response.text)
         return False
 
 
+# ============================================================
+# Kirim pesan — Fonnte API
+# ============================================================
 def send_fonnte_message(target, message):
-    """Kirim balasan ke WhatsApp via Fonnte API."""
     if not FONNTE_TOKEN:
-        print("FONNTE_TOKEN belum di-set!")
+        logger.error("FONNTE_TOKEN belum di-set!")
         return False
-        
+
     url = "https://api.fonnte.com/send"
-    headers = {
-        "Authorization": FONNTE_TOKEN
-    }
-    data = {
-        "target": target,
-        "message": message
-    }
-    
+    headers = {"Authorization": FONNTE_TOKEN}
+    data = {"target": target, "message": message}
+
     try:
-        response = requests.post(url, headers=headers, data=data)
+        response = requests.post(url, headers=headers, data=data, timeout=10)
         response.raise_for_status()
-        print(f"[Fonnte] Balasan terkirim ke {target}")
+        logger.info("[Fonnte] Balasan terkirim ke %s", target)
         return True
     except requests.exceptions.RequestException as e:
-        print(f"[Fonnte] Gagal mengirim balasan ke {target}: {e}")
+        logger.error("[Fonnte] Gagal mengirim balasan ke %s: %s", target, e)
         return False
+
 
 def send_fonnte_interactive_button(target, text_body, buttons):
-    """Kirim balasan tombol via Fonnte API (Fallback Teks jika belum support JSON tombol native)."""
-    # Fallback sederhana untuk testing: menggabungkan text_body dengan pilihan tombol
+    """Fonnte tidak support native button — fallback ke teks."""
     fallback_text = text_body + "\n\nSilakan ketik pilihan Anda:\n"
     for i, btn in enumerate(buttons, start=1):
         fallback_text += f"{i}. {btn['title']}\n"
-        
     return send_fonnte_message(target, fallback_text.strip())
 
+
+# ============================================================
+# Helper: kirim balasan sesuai provider
+# ============================================================
+def _dispatch_reply(sender, balasan):
+    """Kirim balasan ke sender sesuai provider yang dikonfigurasi."""
+    if balasan is None:
+        logger.info("Diteruskan ke operator: %s", sender)
+        return
+
+    msg = balasan["message"]
+    has_buttons = balasan.get("buttons")
+
+    if WHATSAPP_PROVIDER == "fonnte":
+        if has_buttons:
+            send_fonnte_interactive_button(sender, msg, has_buttons)
+        else:
+            send_fonnte_message(sender, msg)
+    else:
+        if has_buttons:
+            send_wa_interactive_button(sender, msg, has_buttons)
+        else:
+            send_wa_message(sender, msg)
+
+
+# ============================================================
+# Webhook endpoint
+# ============================================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    """Endpoint untuk menerima pesan webhook dari Meta."""
     if request.method == "GET":
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
         challenge = request.args.get("hub.challenge")
 
-        if mode and token:
-            if mode == "subscribe" and token == META_VERIFY_TOKEN:
-                print("WEBHOOK_VERIFIED")
-                return challenge, 200
-            else:
-                return "Forbidden", 403
-        return "Webhook is active", 200
+        if not mode or not token:
+            return "Forbidden", 403
+
+        if mode == "subscribe" and token == META_VERIFY_TOKEN:
+            logger.info("WEBHOOK_VERIFIED")
+            return challenge, 200
+            
+        return "Forbidden", 403
 
     try:
-        # Fonnte usually sends form data or json
         data = request.json or request.form
         if not data:
             return jsonify({"status": "error", "message": "No payload"}), 400
-            
-        # 1. Parse payload Fonnte
+
+        # 1. Fonnte payload
         if WHATSAPP_PROVIDER == "fonnte" and "sender" in data and "message" in data:
+            # Validasi header Authorization dari Fonnte
+            auth_header = request.headers.get("Authorization")
+            if auth_header != FONNTE_TOKEN:
+                logger.warning("Fonnte webhook unauthenticated")
+                return jsonify({"status": "error", "message": "Unauthorized"}), 401
+                
             sender = data.get("sender")
             message_text = data.get("message")
-            
-            if sender and message_text:
-                print(f"\nPesan Masuk dari [{sender}] (via Fonnte): {message_text}")
-                balasan = handle_incoming_message(sender, message_text)
-                
-                if balasan is None:
-                    print(f"Diteruskan ke operator: {sender}")
-                else:
-                    if "buttons" in balasan and balasan["buttons"]:
-                        send_fonnte_interactive_button(sender, balasan["message"], balasan["buttons"])
-                    else:
-                        send_fonnte_message(sender, balasan["message"])
+            _process_message(sender, message_text)
             return jsonify({"status": "ok"}), 200
-            
-        # 2. Parse payload Meta
-        if "entry" in data and len(data["entry"]) > 0:
-            for entry in data["entry"]:
-                if "changes" in entry and len(entry["changes"]) > 0:
-                    change = entry["changes"][0]
-                    if "value" in change and "messages" in change["value"]:
-                        message_obj = change["value"]["messages"][0]
-                        sender = message_obj.get("from")
-                        
-                        message_type = message_obj.get("type")
-                        message_text = ""
-                        
-                        if message_type == "text":
-                            message_text = message_obj["text"]["body"]
-                        elif message_type == "interactive":
-                            interactive_obj = message_obj["interactive"]
-                            if interactive_obj["type"] == "button_reply":
-                                message_text = interactive_obj["button_reply"]["title"]
-                            elif interactive_obj["type"] == "list_reply":
-                                message_text = interactive_obj["list_reply"]["title"]
 
-                        if sender and message_text:
-                            print(f"\nPesan Masuk dari [{sender}]: {message_text}")
-                            balasan = handle_incoming_message(sender, message_text)
-                            
-                            if balasan is None:
-                                print(f"Diteruskan ke operator: {sender}")
-                            else:
-                                if WHATSAPP_PROVIDER == "fonnte":
-                                    if "buttons" in balasan and balasan["buttons"]:
-                                        send_fonnte_interactive_button(sender, balasan["message"], balasan["buttons"])
-                                    else:
-                                        send_fonnte_message(sender, balasan["message"])
-                                else:
-                                    # Default ke Meta API
-                                    if "buttons" in balasan and balasan["buttons"]:
-                                        send_wa_interactive_button(sender, balasan["message"], balasan["buttons"])
-                                    else:
-                                        send_wa_message(sender, balasan["message"])
-                                
+        # 2. Meta payload
+        if "entry" in data and len(data["entry"]) > 0:
+            # skipped request verification via X-Hub-Signature-256 for now (local/demo scope)
+            for entry in data["entry"]:
+                if "changes" not in entry or not entry["changes"]:
+                    continue
+                change = entry["changes"][0]
+                if "value" not in change or "messages" not in change["value"]:
+                    continue
+
+                message_obj = change["value"]["messages"][0]
+                sender = message_obj.get("from")
+
+                message_type = message_obj.get("type")
+                message_text = ""
+
+                if message_type == "text":
+                    message_text = message_obj["text"]["body"]
+                elif message_type == "interactive":
+                    interactive_obj = message_obj["interactive"]
+                    if interactive_obj["type"] == "button_reply":
+                        message_text = interactive_obj["button_reply"]["title"]
+                    elif interactive_obj["type"] == "list_reply":
+                        message_text = interactive_obj["list_reply"]["title"]
+
+                _process_message(sender, message_text)
+
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
-        print(f"Error webhook: {e}")
+        logger.exception("Error webhook: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+def _process_message(sender, message_text):
+    """Validasi, rate limit, proses, reply."""
+    if not sender:
+        return
+
+    clean_text, error = validate_message(message_text)
+    if error:
+        logger.warning("Pesan invalid dari %s: %s", sender, error)
+        return
+
+    if not check_rate_limit(sender):
+        logger.info("Rate limited: %s", sender)
+        return
+
+    logger.info("Pesan masuk dari [%s]: %s", sender, clean_text[:100])
+    balasan = handle_incoming_message(sender, clean_text)
+    _dispatch_reply(sender, balasan)
+
+
+# ============================================================
+# Operator selesai endpoint
+# ============================================================
 @app.route("/operator/selesai", methods=["POST"])
 def operator_selesai():
+    # Authentication check
+    api_key = request.headers.get("X-API-Key")
+    if api_key != OPERATOR_API_KEY:
+        logger.warning("Unauthorized access to /operator/selesai")
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+        
     data = request.json
-    nomor = data.get("phone")
+    if not data or not data.get("phone"):
+        return jsonify({"status": "error", "message": "phone required"}), 400
 
+    nomor = data["phone"]
     session_mgr.active_bot(nomor)
 
-    pesan = "Terima kasih telah menghubungi petugas BPS.\nJika masih membutuhkan bantuan, saya siap membantu kembali 😊"
-    if WHATSAPP_PROVIDER == "fonnte":
-        send_fonnte_message(nomor, pesan)
-    else:
-        send_wa_message(nomor, pesan)
+    pesan = "Terima kasih telah menghubungi petugas BPS.\nJika masih membutuhkan bantuan, saya siap membantu kembali."
+    _dispatch_reply(nomor, {"message": pesan})
 
     return jsonify({
         "status": "ok",
-        "message": "Sesi user diakhiri dan status bot diaktifkan kembali"
+        "message": "Sesi user diakhiri dan status bot diaktifkan kembali",
     })
 
 
+# ============================================================
+# Health check & stats
+# ============================================================
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "ok",
+        "mode": "offline" if is_offline_mode() else "ai",
+    })
+
+
+@app.route("/stats", methods=["GET"])
+def stats():
+    return jsonify({
+        "active_sessions": session_mgr.count_active(),
+        "ai_mode": not is_offline_mode(),
+    })
+
+
+# ============================================================
+# Main
+# ============================================================
 if __name__ == "__main__":
-    print("=" * 50)
-    print("Meta WhatsApp Webhook Server Berjalan")
-    print("=" * 50)
-    print(f"Pastikan ngrok jalan: ngrok http 5000")
-    print(f"Set Webhook URL di Meta Dashboard:")
-    print(f"=> https://<ngrok-url>/webhook")
-    print("=" * 50)
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    logger.info("=" * 50)
+    logger.info("WhatsApp Webhook Server Berjalan")
+    logger.info("Provider: %s", WHATSAPP_PROVIDER)
+    logger.info("=" * 50)
+    
+    # disable debug in production
+    is_debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    app.run(host="0.0.0.0", port=5000, debug=is_debug)
