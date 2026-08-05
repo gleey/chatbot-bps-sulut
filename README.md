@@ -113,7 +113,7 @@ python -m unittest discover tests -v
      ↓
 [Cari data] → [Ringkasan jawaban + link BPS]
      ↓
-[Puas?] → Ya → kembali cari data
-     ↓                                  → Tidak → selesai
-        → Tidak → ke operator
+[Puas?] → Ya → kembali cari data → Tidak → selesai
+     ↓
+Tidak → ke operator
 ```
