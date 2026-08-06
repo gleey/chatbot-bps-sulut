@@ -8,6 +8,7 @@ import logging
 from llm_engine import analisis_pesan, test_api_connection, set_offline_mode, is_offline_mode
 from session_manager import SessionManager
 from config import BPS_CATEGORIES
+from bps_api import cari_data_bps
 
 logger = logging.getLogger(__name__)
 
@@ -132,22 +133,28 @@ def _step_gemini_tanya_data(phone, msg, session):
         tujuan_text = kategori_gemini or analisis.get("tujuan", "") or msg
 
         link_bps = None
-        kategori_nama = None
-        
         if kategori_gemini:
-            # Case-insensitive lookup
             if kategori_gemini.lower() in _CATEGORIES_LOWER:
                 link_bps = _CATEGORIES_LOWER[kategori_gemini.lower()]
-                kategori_nama = kategori_gemini
             else:
-                kategori_nama, link_bps = cari_link_otomatis(kategori_gemini)
+                _, link_bps = cari_link_otomatis(kategori_gemini)
                 if link_bps == "https://sulut.bps.go.id":
-                    link_bps = None # Jangan kirim homepage jika fuzzy fail dari Gemini output
+                    link_bps = None
 
+        # Try Web API BPS for actual real-time data & press releases
+        bps_data = cari_data_bps(tujuan_text)
+        
         ringkasan = analisis.get("balasan", "")
         balasan = ringkasan
+
+        if bps_data and bps_data.get("found"):
+            balasan += f"\n\n📌 *Data Resmi Terbaru ({bps_data['title']})*:\n{bps_data['naratif']}"
+            if bps_data.get("link_pdf"):
+                balasan += f"\n\n📄 Document BRS PDF: {bps_data['link_pdf']}"
+
         if link_bps:
-            balasan += f"\n\nBerikut link sumber datanya:\n{link_bps}"
+            balasan += f"\n\n🔗 Tabel Data Statistik Website BPS:\n{link_bps}"
+
         balasan += "\n\nApakah Anda puas dengan informasi ini?"
 
         buttons = [
@@ -168,8 +175,9 @@ def _step_rule_based_tanya_data(phone, msg, session):
     session_mgr.add_to_history(phone, "user", msg)
     pesan_lower = msg.strip().lower()
     kategori_nama, link_bps = cari_link_otomatis(msg)
+    bps_data = cari_data_bps(msg)
 
-    if link_bps == "https://sulut.bps.go.id" and not any(k in pesan_lower for k in ["bps", "sulut"]):
+    if link_bps == "https://sulut.bps.go.id" and not bps_data and not any(k in pesan_lower for k in ["bps", "sulut"]):
         balasan = (
             "Maaf, saya tidak menemukan kategori data yang sesuai.\n"
             "Silakan coba dengan kata kunci lain, misal: kependudukan, inflasi, pertanian, pariwisata."
@@ -177,11 +185,11 @@ def _step_rule_based_tanya_data(phone, msg, session):
         session_mgr.add_to_history(phone, "model", balasan)
         return _reply(phone, balasan)
 
-    balasan = (
-        f"Berikut adalah link website BPS Sulut terkait data yang Anda minta:\n"
-        f"{link_bps}\n\n"
-        f"Apakah Anda puas dengan hasil yang dikirimkan?"
-    )
+    balasan = f"Berikut adalah data BPS Sulut terkait *{msg}*:\n"
+    if bps_data and bps_data.get("found"):
+        balasan += f"\n📌 *{bps_data['title']}*:\n{bps_data['naratif']}\n"
+    
+    balasan += f"\n🔗 Link Tabel BPS: {link_bps}\n\nApakah Anda puas dengan hasil yang dikirimkan?"
     buttons = [
         {"id": "btn_ya", "title": "Ya"},
         {"id": "btn_tidak", "title": "Tidak"},
@@ -319,6 +327,10 @@ def simulasi_chat():
     print()
 
     _startup_api_check()
+
+    # Pre-warm BPS API Cache di background
+    from bps_api import start_prewarm_thread
+    start_prewarm_thread(interval_hours=6)
 
     mode_label = "OFFLINE" if is_offline_mode() else "AI"
     print("-" * 55)

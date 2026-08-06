@@ -5,7 +5,20 @@ load_dotenv()
 
 # Google Gemini Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+# Multi-key rotation — pisahkan dengan koma di .env
+# Jika GEMINI_API_KEYS tidak di-set, fallback ke GEMINI_API_KEY tunggal
+_raw_keys = os.getenv("GEMINI_API_KEYS", GEMINI_API_KEY)
+GEMINI_API_KEYS = [k.strip() for k in _raw_keys.split(",") if k.strip()]
+
+# Multi-model fallback — dicoba berurutan saat model sebelumnya gagal (429/404)
+_raw_fallbacks = os.getenv("GEMINI_MODEL_FALLBACKS", "gemini-2.0-flash,gemini-1.5-flash")
+_fallbacks = [m.strip() for m in _raw_fallbacks.split(",") if m.strip() and m.strip() != MODEL_NAME]
+GEMINI_MODELS = [MODEL_NAME] + _fallbacks
+
+# Cooldown rotator — berapa detik sebelum key/model yang gagal dicoba lagi
+ROTATOR_COOLDOWN = int(os.getenv("ROTATOR_COOLDOWN_SECONDS", "300"))
 
 # WhatsApp Provider Configuration ("meta" atau "fonnte")
 WHATSAPP_PROVIDER = os.getenv("WHATSAPP_PROVIDER", "meta").lower()
@@ -17,6 +30,11 @@ META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "")
 
 # Fonnte API Configuration
 FONNTE_TOKEN = os.getenv("FONNTE_TOKEN", "")
+
+# Web API BPS Configuration
+BPS_API_KEY = os.getenv("BPS_API_KEY", "")
+BPS_API_BASE = "https://webapi.bps.go.id/v1/api"
+BPS_CACHE_TTL = int(os.getenv("BPS_CACHE_TTL", "86400"))  # 24 jam
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
