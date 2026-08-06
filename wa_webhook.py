@@ -10,6 +10,7 @@ from flask import Flask, request, jsonify
 from logging_setup import setup_logging
 from main import handle_incoming_message, session_mgr
 from llm_engine import is_offline_mode
+from bps_api import start_prewarm_thread
 from config import (
     META_ACCESS_TOKEN, META_PHONE_NUMBER_ID, META_VERIFY_TOKEN,
     WHATSAPP_PROVIDER, FONNTE_TOKEN,
@@ -295,6 +296,9 @@ if __name__ == "__main__":
     logger.info("WhatsApp Webhook Server Berjalan")
     logger.info("Provider: %s", WHATSAPP_PROVIDER)
     logger.info("=" * 50)
+
+    # Jalankan background pre-warming cache BPS (tiap 6 jam)
+    start_prewarm_thread(interval_hours=6)
     
     # disable debug in production
     is_debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"

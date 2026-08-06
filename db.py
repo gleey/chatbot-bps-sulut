@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS messages (
     ts    REAL DEFAULT 0,
     FOREIGN KEY (phone) REFERENCES sessions(phone) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS bps_cache (
+    cache_key TEXT PRIMARY KEY,
+    response  TEXT NOT NULL,
+    ts        REAL NOT NULL
+);
 """
 
 _initialized = False
@@ -58,6 +64,7 @@ def reset_db():
     try:
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM bps_cache")
         conn.commit()
     finally:
         conn.close()

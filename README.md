@@ -5,9 +5,12 @@ Chatbot layanan Badan Pusat Statistik (BPS) Provinsi Sulawesi Utara. Melayani pe
 ## Fitur Utama
 
 - **Hybrid AI + Rule-Based**: Gemini API untuk pemahaman natural + fuzzy matching sebagai fallback offline
+- **Key & Model Rotator**: Otomatisasi rotasi multiple API Key Gemini dengan cooldown & fallback model
+- **BPS Web API & Cache SQLite**: Integrasi API BPS dengan pencarian data real-time, pembersihan HTML, dan caching SQLite 24 jam
+- **Background Pre-Warming**: Pre-warming cache otomatis/cron untuk menjamin waktu respons cepat (< 100ms)
 - **Ringkasan Jawaban**: AI memberikan penjelasan singkat tentang data yang tersedia sebelum mengarahkan ke link sumber
 - **WhatsApp Integration**: Mendukung Meta Cloud API dan Fonnte sebagai provider
-- **Session Persistence**: SQLite — sesi percakapan bertahan saat server restart
+- **Session Persistence**: SQLite — sesi percakapan & riwayat bertahan saat server restart
 - **Interactive Buttons**: Tombol interaktif di WhatsApp untuk navigasi layanan
 - **Rate Limiting & Validasi**: Proteksi input dan throttle per user
 - **Logging Terstruktur**: Rotating file log + stdout
@@ -17,15 +20,17 @@ Chatbot layanan Badan Pusat Statistik (BPS) Provinsi Sulawesi Utara. Melayani pe
 ```
 chatbot-bps/
 ├── main.py              # State machine + fuzzy matching + simulasi terminal
-├── llm_engine.py        # Gemini API wrapper + offline fallback
+├── llm_engine.py        # Gemini API wrapper + Key/Model Rotator + offline fallback
+├── bps_api.py           # Web API client BPS + SQLite 24h cache & HTML cleaner
 ├── session_manager.py   # Session manager (SQLite-backed)
-├── db.py                # SQLite database setup
+├── db.py                # SQLite database setup (sessions, messages, bps_cache)
 ├── config.py            # Konfigurasi + system prompt + daftar kategori BPS
 ├── wa_webhook.py        # Flask webhook server (Meta + Fonnte)
 ├── webhook_utils.py     # Validasi input & rate limiting
+├── prewarm.py           # Script manual/cron pre-warming cache BPS
 ├── logging_setup.py     # Setup logging terstruktur
 ├── requirements.txt
-├── .env.example         # Template konfigurasi (ISI SENDIRI, jangan pakai as-is)
+├── .env.example         # Template konfigurasi
 ├── tests/
 │   ├── test_session_manager.py
 │   ├── test_cari_link.py
@@ -61,7 +66,7 @@ cp .env.example .env
 
 | Variable | Wajib? | Keterangan |
 |---|---|---|
-| `GEMINI_API_KEY` | Ya (untuk mode AI) | Google Gemini API key |
+| `GEMINI_API_KEY` | Ya (untuk mode AI) | Google Gemini API key (bisa multiple dipisah koma) |
 | `WHATSAPP_PROVIDER` | Tidak | `meta` (default) atau `fonnte` |
 | `META_ACCESS_TOKEN` | Untuk WA Meta | Meta Cloud API token |
 | `META_PHONE_NUMBER_ID` | Untuk WA Meta | Phone Number ID dari Meta |
@@ -83,6 +88,18 @@ Perintah khusus:
 - `reset` — mulai percakapan baru
 - `info` — tampilkan info session
 - `online` — coba koneksi API lagi
+
+### Background Pre-warming Cache BPS (Opsional)
+
+Untuk menjamin waktu respons < 100ms saat user bertanya data BPS, Anda bisa menjalankan pre-warming cache secara manual atau via cron job:
+
+```bash
+# Jalankan sekali secara manual
+python prewarm.py
+
+# Contoh setup Cron Job (tiap 6 jam):
+# 0 */6 * * * /path/to/.venv/bin/python /path/to/prewarm.py
+```
 
 ### Webhook WhatsApp
 

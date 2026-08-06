@@ -1,13 +1,17 @@
 """
 LLM engine — Gemini API wrapper + offline fallback.
-Sekarang Gemini memberikan ringkasan jawaban (bukan hanya intent parsing).
+Mendukung rotasi API Key dan Model secara otomatis saat terjadi 429/404.
 """
 import json
 import logging
+import time
 from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
-from config import GEMINI_API_KEY, MODEL_NAME, SYSTEM_PROMPT
+from config import (
+    GEMINI_API_KEYS, GEMINI_MODELS, MODEL_NAME,
+    SYSTEM_PROMPT, ROTATOR_COOLDOWN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,48 +27,173 @@ def is_offline_mode():
     return _offline_mode
 
 
-def _get_client():
-    if not GEMINI_API_KEY:
-        raise ValueError(
-            "GEMINI_API_KEY belum di-set! "
-            "Jalankan: export GEMINI_API_KEY='your-api-key' "
-            "atau set di file .env"
-        )
-    return genai.Client(api_key=GEMINI_API_KEY)
+# ============================================================
+# Key & Model Rotator
+# ============================================================
+class _KeyRotator:
+    """Round-robin API key rotator dengan cooldown otomatis."""
+
+    def __init__(self, keys, cooldown=300):
+        self.keys = keys if keys else []
+        self.failed = {}  # index -> timestamp gagal
+        self.cooldown = cooldown
+
+    def _reset_expired(self):
+        now = time.time()
+        expired = [i for i, ts in self.failed.items() if now - ts > self.cooldown]
+        for i in expired:
+            del self.failed[i]
+
+    def get_available_keys(self):
+        """Return list (index, key) yang belum gagal atau sudah melewati cooldown."""
+        self._reset_expired()
+        return [(i, k) for i, k in enumerate(self.keys) if i not in self.failed]
+
+    def mark_failed(self, index):
+        self.failed[index] = time.time()
+        key_masked = self.keys[index][-6:] if len(self.keys[index]) > 6 else "***"
+        logger.warning("Rotator: key ...%s ditandai gagal (%d/%d aktif)",
+                       key_masked, len(self.keys) - len(self.failed), len(self.keys))
+
+    def has_available(self):
+        self._reset_expired()
+        return any(i not in self.failed for i in range(len(self.keys)))
 
 
+class _ModelRotator:
+    """Fallback model rotator — pindah model saat 404 atau semua key habis."""
+
+    def __init__(self, models, cooldown=300):
+        self.models = models if models else []
+        self.failed = {}  # index -> timestamp gagal
+        self.cooldown = cooldown
+
+    def _reset_expired(self):
+        now = time.time()
+        expired = [i for i, ts in self.failed.items() if now - ts > self.cooldown]
+        for i in expired:
+            del self.failed[i]
+
+    def get_available_models(self):
+        self._reset_expired()
+        return [(i, m) for i, m in enumerate(self.models) if i not in self.failed]
+
+    def mark_failed(self, index):
+        logger.warning("Rotator: model '%s' ditandai gagal (%d/%d aktif)",
+                       self.models[index],
+                       len(self.models) - len(self.failed) - 1, len(self.models))
+        self.failed[index] = time.time()
+
+    def has_available(self):
+        self._reset_expired()
+        return any(i not in self.failed for i in range(len(self.models)))
+
+
+# Singleton instances
+_key_rotator = _KeyRotator(GEMINI_API_KEYS, ROTATOR_COOLDOWN)
+_model_rotator = _ModelRotator(GEMINI_MODELS, ROTATOR_COOLDOWN)
+
+
+def get_rotator_status():
+    """Status rotator untuk debugging/monitoring."""
+    avail_keys = _key_rotator.get_available_keys()
+    avail_models = _model_rotator.get_available_models()
+    return {
+        "keys_total": len(_key_rotator.keys),
+        "keys_available": len(avail_keys),
+        "models_total": len(_model_rotator.models),
+        "models_available": len(avail_models),
+        "active_models": [m for _, m in avail_models],
+    }
+
+
+# ============================================================
+# Gemini API call dengan rotasi otomatis
+# ============================================================
+def _call_gemini(contents, system_instruction, temperature=0.7):
+    """Coba semua kombinasi (model, key) sampai sukses atau habis.
+
+    Returns: response object dari Gemini
+    Raises: RuntimeError jika semua kombinasi gagal
+    """
+    last_error = "Tidak ada API key atau model yang tersedia."
+
+    for model_idx, model_name in _model_rotator.get_available_models():
+        for key_idx, api_key in _key_rotator.get_available_keys():
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=temperature,
+                    ),
+                )
+                # Berhasil — log jika bukan model/key utama
+                if model_idx > 0 or key_idx > 0:
+                    logger.info("Rotator: berhasil dengan model='%s', key #%d",
+                                model_name, key_idx + 1)
+                return response
+
+            except genai_errors.ClientError as e:
+                error_msg = str(e)
+
+                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    _key_rotator.mark_failed(key_idx)
+                    last_error = error_msg
+                    continue  # coba key berikutnya, model sama
+
+                if "404" in error_msg or "NOT_FOUND" in error_msg:
+                    _model_rotator.mark_failed(model_idx)
+                    last_error = error_msg
+                    break  # pindah model, key di-reset
+
+                # Error lain (400 bad request, 403 forbidden, dll)
+                logger.error("Gemini error (model=%s, key #%d): %s",
+                             model_name, key_idx + 1, error_msg)
+                last_error = error_msg
+                _key_rotator.mark_failed(key_idx)
+                continue
+
+            except Exception as e:
+                logger.error("Error tidak terduga: %s", e)
+                last_error = str(e)
+                _key_rotator.mark_failed(key_idx)
+                continue
+
+        # Semua key habis untuk model ini — tandai model gagal juga
+        if not _key_rotator.has_available():
+            _model_rotator.mark_failed(model_idx)
+            # Reset key untuk model berikutnya
+            _key_rotator.failed.clear()
+
+    raise RuntimeError(last_error)
+
+
+# ============================================================
+# Public API
+# ============================================================
 def test_api_connection():
-    """Test koneksi ke Gemini API.
+    """Test koneksi ke Gemini API dengan rotasi.
     Returns: (berhasil: bool, pesan_error: str)
     """
-    if not GEMINI_API_KEY:
-        return False, "GEMINI_API_KEY belum di-set."
+    if not GEMINI_API_KEYS:
+        return False, "GEMINI_API_KEYS belum di-set."
+
     try:
-        client = _get_client()
-        client.models.generate_content(
-            model=MODEL_NAME,
+        _call_gemini(
             contents="test",
-            config=types.GenerateContentConfig(
-                system_instruction="Balas dengan satu kata: OK",
-                temperature=0,
-            ),
+            system_instruction="Balas dengan satu kata: OK",
+            temperature=0,
         )
         return True, ""
-    except genai_errors.ClientError as e:
-        return False, str(e)
-    except Exception as e:
+    except RuntimeError as e:
         return False, str(e)
 
 
 def analisis_pesan(history, info_terkumpul=None):
-    """Kirim pesan ke Gemini, dapatkan analisis structured + ringkasan jawaban.
-
-    Args:
-        history: List conversation history (sudah mengandung pesan user terbaru).
-        info_terkumpul: Info dari sesi.
-    Returns:
-        Dict: intent, nama, instansi, tujuan, kategori_cocok, balasan
-    """
+    """Kirim pesan ke Gemini, dapatkan analisis structured + ringkasan jawaban."""
     # Ambil pesan user terakhir untuk fallback
     pesan_baru = ""
     for msg in reversed(history):
@@ -75,16 +204,10 @@ def analisis_pesan(history, info_terkumpul=None):
     if _offline_mode:
         return _fallback_offline(pesan_baru)
 
-    client = _get_client()
-
     # Sertakan info yang sudah terkumpul agar Gemini punya konteks
     context_prefix = ""
     if info_terkumpul:
         collected = []
-        if info_terkumpul.get("nama"):
-            collected.append(f"nama={info_terkumpul['nama']}")
-        if info_terkumpul.get("instansi"):
-            collected.append(f"instansi={info_terkumpul['instansi']}")
         if info_terkumpul.get("tujuan"):
             collected.append(f"tujuan={info_terkumpul['tujuan']}")
         if collected:
@@ -93,10 +216,9 @@ def analisis_pesan(history, info_terkumpul=None):
     contents = []
     for i, msg in enumerate(history):
         text = msg["parts"][0]["text"]
-        # Sisipkan context di pesan user TERAKHIR (bukan tambah pesan baru)
         if i == len(history) - 1 and msg["role"] == "user":
             text = context_prefix + text
-            
+
         contents.append(
             types.Content(
                 role=msg["role"],
@@ -105,31 +227,15 @@ def analisis_pesan(history, info_terkumpul=None):
         )
 
     try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.7,
-            ),
-        )
-    except genai_errors.ClientError as e:
-        error_msg = str(e)
-        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-            logger.warning("Quota API habis. Beralih ke mode offline.")
-            set_offline_mode(True)
-        else:
-            logger.error("Error API: %s", error_msg)
-        return _fallback_offline(pesan_baru)
-    except Exception as e:
-        logger.error("Error tidak terduga: %s", e)
+        response = _call_gemini(contents, SYSTEM_PROMPT, temperature=0.7)
+    except RuntimeError as e:
+        logger.warning("Semua key & model habis: %s. Beralih ke mode offline.", e)
+        set_offline_mode(True)
         return _fallback_offline(pesan_baru)
 
     try:
-        # Handle None response.text
         response_text = (response.text or "").strip()
-        
-        # Strip markdown code fence jika ada
+
         if response_text.startswith("```"):
             lines = response_text.split("\n")
             lines = lines[1:]
@@ -146,7 +252,6 @@ def analisis_pesan(history, info_terkumpul=None):
             "balasan": (response.text or "").strip(),
         }
 
-    # Pastikan semua field ada
     defaults = {
         "intent": "lainnya",
         "tujuan": "",
@@ -160,6 +265,9 @@ def analisis_pesan(history, info_terkumpul=None):
     return hasil
 
 
+# ============================================================
+# Fallback offline
+# ============================================================
 def _fallback_offline(pesan):
     """Fallback keyword matching saat API tidak tersedia."""
     pesan_lower = pesan.lower()
@@ -170,7 +278,6 @@ def _fallback_offline(pesan):
     balasan = ""
 
     kata_sapa = {"halo", "hai", "hi", "selamat", "permisi", "assalamualaikum"}
-    introduction = {"nama", "saya", "berasal", "dari", "asal", "instansi"}
 
     if kata_kata & {"data", "statistik", "cari", "butuh", "ingin", "mau", "perlu"}:
         intent = "cari_data"
@@ -189,7 +296,6 @@ def _fallback_offline(pesan):
         )
 
     elif pesan_lower.strip() in ("ya", "makasih", "puas", "sudah", "oke", "thanks", "thx", "terima kasih"):
-        # Match exact/standalone untuk menghindari false positive
         intent = "puas"
         balasan = "Terima kasih! Senang bisa membantu."
 
