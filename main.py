@@ -141,18 +141,15 @@ def _step_gemini_tanya_data(phone, msg, session):
                 if link_bps == "https://sulut.bps.go.id":
                     link_bps = None
 
-        # Try Web API BPS for actual real-time data & press releases
-        bps_data = cari_data_bps(tujuan_text)
-        
         ringkasan = analisis.get("balasan", "")
         balasan = ringkasan
 
-        if bps_data and bps_data.get("found"):
-            balasan += f"\n\n📌 *Data Resmi Terbaru ({bps_data['title']})*:\n{bps_data['naratif']}"
-            if bps_data.get("link_pdf"):
-                balasan += f"\n\n📄 Document BRS PDF: {bps_data['link_pdf']}"
-
+        # HANYA lampirkan data BPS API dan link jika kategori data spesifik (link_bps) ditemukan/cocok
         if link_bps:
+            bps_data = cari_data_bps(tujuan_text)
+            if bps_data and bps_data.get("found"):
+                balasan += f"\n\n📌 *Data Resmi Terbaru ({bps_data['title']})*:\n{bps_data['naratif']}"
+
             balasan += f"\n\n🔗 Tabel Data Statistik Website BPS:\n{link_bps}"
 
         balasan += "\n\nApakah Anda puas dengan informasi ini?"
@@ -175,9 +172,11 @@ def _step_rule_based_tanya_data(phone, msg, session):
     session_mgr.add_to_history(phone, "user", msg)
     pesan_lower = msg.strip().lower()
     kategori_nama, link_bps = cari_link_otomatis(msg)
-    bps_data = cari_data_bps(msg)
+    
+    if link_bps == "https://sulut.bps.go.id":
+        link_bps = None
 
-    if link_bps == "https://sulut.bps.go.id" and not bps_data and not any(k in pesan_lower for k in ["bps", "sulut"]):
+    if not link_bps and not any(k in pesan_lower for k in ["bps", "sulut"]):
         balasan = (
             "Maaf, saya tidak menemukan kategori data yang sesuai.\n"
             "Silakan coba dengan kata kunci lain, misal: kependudukan, inflasi, pertanian, pariwisata."
@@ -186,10 +185,15 @@ def _step_rule_based_tanya_data(phone, msg, session):
         return _reply(phone, balasan)
 
     balasan = f"Berikut adalah data BPS Sulut terkait *{msg}*:\n"
-    if bps_data and bps_data.get("found"):
-        balasan += f"\n📌 *{bps_data['title']}*:\n{bps_data['naratif']}\n"
-    
-    balasan += f"\n🔗 Link Tabel BPS: {link_bps}\n\nApakah Anda puas dengan hasil yang dikirimkan?"
+    if link_bps:
+        bps_data = cari_data_bps(msg)
+        if bps_data and bps_data.get("found"):
+            balasan += f"\n📌 *{bps_data['title']}*:\n{bps_data['naratif']}\n"
+        balasan += f"\n🔗 Link Tabel BPS: {link_bps}\n\n"
+    else:
+        balasan += f"\n🔗 Website BPS Sulut: https://sulut.bps.go.id\n\n"
+        
+    balasan += "Apakah Anda puas dengan hasil yang dikirimkan?"
     buttons = [
         {"id": "btn_ya", "title": "Ya"},
         {"id": "btn_tidak", "title": "Tidak"},
