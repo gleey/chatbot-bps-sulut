@@ -10,7 +10,8 @@ Chatbot layanan Badan Pusat Statistik (BPS) Provinsi Sulawesi Utara. Melayani pe
 - **Background Pre-Warming**: Pre-warming cache otomatis/cron untuk menjamin waktu respons cepat (< 100ms)
 - **Ringkasan Jawaban**: AI memberikan penjelasan singkat tentang data yang tersedia sebelum mengarahkan ke link sumber
 - **WhatsApp Integration**: Mendukung Meta Cloud API dan Fonnte sebagai provider
-- **Session Persistence**: SQLite — sesi percakapan & riwayat bertahan saat server restart
+- **WSGI Server Ready**: Menggunakan Waitress (WSGI server produksi) untuk stabilitas tinggi tanpa warning development server
+- **Session Persistence**: SQLite — sesi percakapan & riwayat bertahan saat server restart (timeout otomatis via `SESSION_TIMEOUT`)
 - **Interactive Buttons**: Tombol interaktif di WhatsApp untuk navigasi layanan
 - **Rate Limiting & Validasi**: Proteksi input dan throttle per user
 - **Logging Terstruktur**: Rotating file log + stdout
@@ -73,6 +74,8 @@ cp .env.example .env
 | `META_VERIFY_TOKEN` | Untuk WA Meta | Token verifikasi webhook |
 | `FONNTE_TOKEN` | Untuk WA Fonnte | Token API Fonnte |
 | `GEMINI_MODEL` | Tidak | Default: `gemini-2.0-flash` |
+| `SESSION_TIMEOUT` | Tidak | Timeout sesi percakapan dalam detik. Default: `1800` (30 menit) |
+| `GEMINI_MODEL_FALLBACKS` | Tidak | Model cadangan jika utama 429/404, dipisah koma (mis. `gemini-flash-lite-latest,gemini-2.0-flash`) |
 | `LOG_LEVEL` | Tidak | Default: `INFO` |
 
 ## Menjalankan
@@ -106,6 +109,8 @@ python prewarm.py
 ```bash
 python wa_webhook.py
 ```
+
+*Server otomatis berjalan menggunakan **Waitress** (WSGI Server produksi).*
 
 Endpoint:
 - `POST /webhook` — menerima pesan WhatsApp
