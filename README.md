@@ -73,10 +73,9 @@ cp .env.example .env
 | `META_PHONE_NUMBER_ID` | Untuk WA Meta | Phone Number ID dari Meta |
 | `META_VERIFY_TOKEN` | Untuk WA Meta | Token verifikasi webhook |
 | `FONNTE_TOKEN` | Untuk WA Fonnte | Token API Fonnte |
-| `GEMINI_MODEL` | Tidak | Default: `gemini-2.0-flash` |
+| `GEMINI_MODEL` | Ya | Default: `gemini-3.5-flash` |
 | `SESSION_TIMEOUT` | Tidak | Timeout sesi percakapan dalam detik. Default: `1800` (30 menit) |
-| `GEMINI_MODEL_FALLBACKS` | Tidak | Model cadangan jika utama 429/404, dipisah koma (mis. `gemini-flash-lite-latest,gemini-2.0-flash`) |
-| `LOG_LEVEL` | Tidak | Default: `INFO` |
+| `GEMINI_MODEL_FALLBACKS` | Tidak | Model cadangan jika utama 429/404, dipisah koma (mis. `gemini-flash-lite-latest,gemini-flash-latest`) |
 
 ## Menjalankan
 
