@@ -60,7 +60,8 @@ class TestStateMachine(unittest.TestCase):
         """Pilih pengaduan → operator."""
         handle_incoming_message(self.phone, "halo")
         result = handle_incoming_message(self.phone, "Pengaduan")
-        self.assertIn("operator", result["message"].lower())
+        self.assertIn("pengaduan", result["message"].lower())
+        self.assertIn("bps7100@bps.go.id", result["message"])
 
     @patch("main.is_offline_mode", return_value=True)
     def test_invalid_layanan(self, mock_offline):

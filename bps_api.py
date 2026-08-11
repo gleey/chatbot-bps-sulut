@@ -222,23 +222,33 @@ def cari_data_bps(keyword: str):
     if not isinstance(press_releases, list) or not press_releases:
         return None
 
-    # Filter BRS paling relevan dari list
+    # Filter BRS paling relevan dari list — skor setiap BRS
+    kata_kunci = [k for k in keyword_clean.split() if len(k) > 2]
     best_brs = None
+    best_score = 0
+
     for brs in press_releases:
         title = brs.get("title", "").lower()
         subcat = (brs.get("subcsa") or "").lower()
+        haystack = f"{title} {subcat}"
 
-        if keyword_clean in title or any(k in title for k in keyword_clean.split() if len(k) > 3):
+        score = 0
+        # Exact keyword match
+        if keyword_clean in haystack:
+            score += 10
+        # Per-kata match
+        for kata in kata_kunci:
+            if kata in haystack:
+                score += 3
+
+        if score > best_score:
+            best_score = score
             best_brs = brs
-            break
-        if keyword_clean in subcat or any(k in subcat for k in keyword_clean.split() if len(k) > 3):
-            best_brs = brs
-            break
 
-    # If no title/subcat match, return BRS paling baru dari list yang sudah terfilter
-    if not best_brs and press_releases:
-        best_brs = press_releases[0]
-
+    # Tidak ada match via skor — return None.
+    # BPS API saat ini mengembalikan data identik untuk semua endpoint
+    # (filter subcsa/sub tidak efektif), jadi fallback ke BRS[0] akan
+    # menampilkan data yang tidak relevan.
     if not best_brs:
         return None
 

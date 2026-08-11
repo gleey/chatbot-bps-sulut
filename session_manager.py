@@ -6,7 +6,7 @@ import os
 import time
 from db import get_conn, init_db
 
-SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "1800"))
+SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "600"))
 
 
 class SessionManager:

@@ -91,7 +91,16 @@ def _step_pilih_layanan(phone, msg, session):
     pesan_lower = msg.strip().lower()
 
     if "pengaduan" in pesan_lower or pesan_lower == "1":
-        balasan = "Anda memilih Pengaduan. Menghubungkan ke operator kami... Mohon ditunggu ya."
+        balasan = (
+            "Anda memilih Pengaduan.\n\n"
+            "Silakan hubungi BPS Provinsi Sulawesi Utara melalui:\n"
+            "📞 Telepon: (0431) 847044\n"
+            "📧 Email: bps7100@bps.go.id\n"
+            "📠 Faks: (0431) 842206\n"
+            "📍 Alamat: Jl. 17 Agustus, Manado, Sulawesi Utara 95119\n"
+            "📷 Instagram: @bpsprovsulut (https://instagram.com/bpsprovsulut)\n\n"
+            "🕗 Jam Pelayanan: Senin–Jumat, 08.00–15.30 WITA"
+        )
         session_mgr.add_to_history(phone, "model", balasan)
         session_mgr.reset(phone)
         return _reply(phone, balasan)
@@ -110,7 +119,23 @@ def _step_pilih_layanan(phone, msg, session):
     return _reply(phone, balasan)
 
 
+def _handle_selesai(phone, msg):
+    """Cek apakah user ketik 'selesai' untuk mengakhiri sesi. Return balasan atau None."""
+    if msg.strip().lower() in ("selesai", "done", "exit"):
+        session_mgr.add_to_history(phone, "user", msg)
+        balasan = "Terima kasih telah menggunakan layanan BPS Sulawesi Utara. Sampai jumpa!"
+        session_mgr.add_to_history(phone, "model", balasan)
+        session_mgr.reset(phone)
+        return _reply(phone, balasan)
+    return None
+
+
 def _step_gemini_tanya_data(phone, msg, session):
+    # Cek apakah user ingin mengakhiri sesi
+    selesai = _handle_selesai(phone, msg)
+    if selesai:
+        return selesai
+
     # Simpan pesan user ke history DULU, lalu kirim history ke Gemini
     # (analisis_pesan tidak menambah pesan baru lagi — fix #8 double message)
     session_mgr.add_to_history(phone, "user", msg)
@@ -169,6 +194,11 @@ def _step_gemini_tanya_data(phone, msg, session):
 
 
 def _step_rule_based_tanya_data(phone, msg, session):
+    # Cek apakah user ingin mengakhiri sesi
+    selesai = _handle_selesai(phone, msg)
+    if selesai:
+        return selesai
+
     session_mgr.add_to_history(phone, "user", msg)
     pesan_lower = msg.strip().lower()
     kategori_nama, link_bps = cari_link_otomatis(msg)
@@ -204,6 +234,11 @@ def _step_rule_based_tanya_data(phone, msg, session):
 
 
 def _step_kepuasan(phone, msg, session):
+    # Cek apakah user ingin mengakhiri sesi
+    selesai = _handle_selesai(phone, msg)
+    if selesai:
+        return selesai
+
     session_mgr.add_to_history(phone, "user", msg)
     pesan_clean = msg.strip().lower()
 
@@ -211,20 +246,20 @@ def _step_kepuasan(phone, msg, session):
     if pesan_clean in ("tidak", "no", "tdk", "blm", "belum"):
         if is_offline_mode():
             session_mgr.set_step(phone, "rule_based_tanya_data")
-            balasan = "Mohon maaf jika jawaban belum memuaskan. Data apa lagi yang ingin Anda cari?"
+            balasan = "Mohon maaf jika jawaban belum memuaskan. Data apa lagi yang ingin Anda cari?\n\nJika sudah tidak ada, silakan ketik *Selesai*."
         else:
             session_mgr.set_step(phone, "gemini_tanya_data")
-            balasan = "Mohon maaf jika jawaban belum memuaskan. Silakan ketik pertanyaan atau data yang Anda cari selanjutnya."
+            balasan = "Mohon maaf jika jawaban belum memuaskan. Silakan ketik pertanyaan atau data yang Anda cari selanjutnya.\n\nJika sudah tidak ada, silakan ketik *Selesai*."
         session_mgr.add_to_history(phone, "model", balasan)
         return _reply(phone, balasan)
 
     if pesan_clean in ("ya", "yes", "iya", "yaa", "oke", "ok"):
         if is_offline_mode():
             session_mgr.set_step(phone, "rule_based_tanya_data")
-            balasan = "Terima kasih! Data apa lagi yang ingin Anda cari?"
+            balasan = "Terima kasih! Data apa lagi yang ingin Anda cari?\n\nJika sudah tidak ada, silakan ketik *Selesai*."
         else:
             session_mgr.set_step(phone, "gemini_tanya_data")
-            balasan = "Silakan ketik pertanyaan atau data yang Anda cari selanjutnya."
+            balasan = "Silakan ketik pertanyaan atau data yang Anda cari selanjutnya.\n\nJika sudah tidak ada, silakan ketik *Selesai*."
         session_mgr.add_to_history(phone, "model", balasan)
         return _reply(phone, balasan)
 

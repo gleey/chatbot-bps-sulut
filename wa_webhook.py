@@ -4,6 +4,7 @@ Dengan logging terstruktur, validasi input, rate limiting, dan health check.
 """
 import logging
 import os
+import threading
 import requests
 from flask import Flask, request, jsonify
 
@@ -131,6 +132,9 @@ def send_fonnte_interactive_button(target, text_body, buttons):
 # ============================================================
 # Helper: kirim balasan sesuai provider
 # ============================================================
+WA_INTERACTIVE_BODY_MAX = 1024
+
+
 def _dispatch_reply(sender, balasan):
     """Kirim balasan ke sender sesuai provider yang dikonfigurasi."""
     if balasan is None:
@@ -147,7 +151,15 @@ def _dispatch_reply(sender, balasan):
             send_fonnte_message(sender, msg)
     else:
         if has_buttons:
-            send_wa_interactive_button(sender, msg, has_buttons)
+            if len(msg) > WA_INTERACTIVE_BODY_MAX:
+                # Teks terlalu panjang untuk interactive button body (max 1024).
+                # Kirim teks utama dulu, lalu tombol terpisah.
+                send_wa_message(sender, msg)
+                send_wa_interactive_button(
+                    sender, "Silakan pilih:", has_buttons
+                )
+            else:
+                send_wa_interactive_button(sender, msg, has_buttons)
         else:
             send_wa_message(sender, msg)
 
@@ -214,7 +226,7 @@ def webhook():
                     elif interactive_obj["type"] == "list_reply":
                         message_text = interactive_obj["list_reply"]["title"]
 
-                _process_message(sender, message_text)
+                threading.Thread(target=_process_message, args=(sender, message_text), daemon=True).start()
 
         return jsonify({"status": "ok"}), 200
 
@@ -299,7 +311,12 @@ if __name__ == "__main__":
 
     # Jalankan background pre-warming cache BPS (tiap 6 jam)
     start_prewarm_thread(interval_hours=6)
-    
-    # disable debug in production
-    is_debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
-    app.run(host="0.0.0.0", port=5000, debug=is_debug)
+
+    # Jalankan dengan Waitress (WSGI server produksi) jika tersedia, fallback ke app.run()
+    try:
+        from waitress import serve
+        logger.info("Serving WSGI app di http://0.0.0.0:5000 (Waitress)")
+        serve(app, host="0.0.0.0", port=5000)
+    except ImportError:
+        is_debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+        app.run(host="0.0.0.0", port=5000, debug=is_debug)
