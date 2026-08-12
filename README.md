@@ -66,7 +66,7 @@ cp .env.example .env
 **PENTING:** Token di `.env.example` adalah **placeholder**. Ganti semua value dengan token asli Anda.
 
 | Variable | Wajib? | Keterangan |
-|---|---|---|
+| --- | --- | --- |
 | `GEMINI_API_KEY` | Ya (untuk mode AI) | Google Gemini API key (bisa multiple dipisah koma) |
 | `WHATSAPP_PROVIDER` | Tidak | `meta` (default) atau `fonnte` |
 | `META_ACCESS_TOKEN` | Untuk WA Meta | Meta Cloud API token |
@@ -74,7 +74,7 @@ cp .env.example .env
 | `META_VERIFY_TOKEN` | Untuk WA Meta | Token verifikasi webhook |
 | `FONNTE_TOKEN` | Untuk WA Fonnte | Token API Fonnte |
 | `GEMINI_MODEL` | Ya | Default: `gemini-3.5-flash` |
-| `SESSION_TIMEOUT` | Tidak | Timeout sesi percakapan dalam detik. Default: `1800` (30 menit) |
+| `SESSION_TIMEOUT` | Tidak | Timeout sesi percakapan dalam detik. Default: `600` (10 menit) |
 | `GEMINI_MODEL_FALLBACKS` | Tidak | Model cadangan jika utama 429/404, dipisah koma (mis. `gemini-flash-lite-latest,gemini-flash-latest`) |
 
 ## Menjalankan
@@ -86,6 +86,7 @@ python main.py
 ```
 
 Perintah khusus:
+
 - `keluar` — hentikan simulasi
 - `reset` — mulai percakapan baru
 - `info` — tampilkan info session
@@ -112,6 +113,7 @@ python wa_webhook.py
 *Server otomatis berjalan menggunakan **Waitress** (WSGI Server produksi).*
 
 Endpoint:
+
 - `POST /webhook` — menerima pesan WhatsApp
 - `GET /webhook` — verifikasi webhook Meta
 - `POST /operator/selesai` — akhiri sesi operator, aktifkan bot kembali
