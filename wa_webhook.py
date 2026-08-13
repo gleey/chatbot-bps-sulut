@@ -5,8 +5,9 @@ Dengan logging terstruktur, validasi input, rate limiting, dan health check.
 import logging
 import os
 import threading
+import time
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 from logging_setup import setup_logging
 from main import handle_incoming_message, session_mgr
@@ -255,8 +256,72 @@ def _process_message(sender, message_text):
 
 
 # ============================================================
-# Operator selesai endpoint
+# Operator Web Dashboard & API Endpoints
 # ============================================================
+@app.route("/operator", methods=["GET"])
+def operator_dashboard():
+    """Render Web UI Dashboard Operator."""
+    return render_template("operator.html")
+
+
+@app.route("/api/operator/sessions", methods=["GET"])
+def api_operator_sessions():
+    """Ambil daftar semua sesi pengaduan aktif yang sedang ditangani operator."""
+    sessions = session_mgr.get_operator_sessions()
+    return jsonify({"status": "ok", "sessions": sessions})
+
+
+@app.route("/api/operator/send", methods=["POST"])
+def api_operator_send():
+    """Kirim balasan dari petugas operator ke WhatsApp pengguna."""
+    data = request.json or {}
+    nomor = data.get("phone")
+    pesan = data.get("message")
+
+    if not nomor or not pesan:
+        return jsonify({"status": "error", "message": "phone dan message wajib diisi"}), 400
+
+    # Simpan balasan operator ke riwayat percakapan
+    session_mgr.add_to_history(nomor, "operator", pesan)
+    session_mgr.touch(nomor)
+
+    # Kirim ke WhatsApp pengguna
+    berhasil = False
+    if WHATSAPP_PROVIDER == "fonnte":
+        berhasil = send_fonnte_message(nomor, pesan)
+    else:
+        berhasil = send_wa_message(nomor, pesan)
+
+    if berhasil:
+        return jsonify({"status": "ok", "message": "Pesan berhasil terkirim"})
+    return jsonify({"status": "error", "message": "Gagal mengirim pesan ke WhatsApp"}), 500
+
+
+@app.route("/api/operator/close", methods=["POST"])
+def api_operator_close():
+    """Selesaikan sesi operator dan aktifkan kembali bot untuk user ini."""
+    data = request.json or {}
+    nomor = data.get("phone")
+
+    if not nomor:
+        return jsonify({"status": "error", "message": "phone wajib diisi"}), 400
+
+    # Kirim pesan penutup ke pengguna
+    pesan_penutup = (
+        "Terima kasih telah menghubungi petugas BPS Sulawesi Utara.\n"
+        "Sesi pengaduan telah selesai. Jika masih membutuhkan bantuan, saya (Bot BPS) siap membantu kembali."
+    )
+    if WHATSAPP_PROVIDER == "fonnte":
+        send_fonnte_message(nomor, pesan_penutup)
+    else:
+        send_wa_message(nomor, pesan_penutup)
+
+    # Reset sesi agar bot aktif kembali
+    session_mgr.reset(nomor)
+
+    return jsonify({"status": "ok", "message": "Sesi diakhiri dan bot kembali aktif"})
+
+
 @app.route("/operator/selesai", methods=["POST"])
 def operator_selesai():
     # Authentication check
@@ -300,6 +365,31 @@ def stats():
     })
 
 
+SESSION_CLOSING_MSG = (
+    "Sesi layanan BPS ditutup otomatis karena tidak ada aktivitas. "
+    "Silakan kirim pesan baru jika Anda memerlukan bantuan pencarian data statistik. Terima kasih!"
+)
+
+
+def start_session_timeout_thread(check_interval=15):
+    """Background thread: Cek sesi expired tiap N detik & kirim pesan penutup otomatis."""
+    def _loop():
+        while True:
+            try:
+                expired_phones = session_mgr.get_expired_sessions()
+                for phone in expired_phones:
+                    logger.info("Session expired (5 min inactivity): %s", phone)
+                    _dispatch_reply(phone, {"message": SESSION_CLOSING_MSG})
+                    session_mgr.reset(phone)
+            except Exception as e:
+                logger.error("Error dalam session timeout thread: %s", e)
+            time.sleep(check_interval)
+
+    t = threading.Thread(target=_loop, daemon=True, name="SessionTimeoutThread")
+    t.start()
+    return t
+
+
 # ============================================================
 # Main
 # ============================================================
@@ -311,6 +401,8 @@ if __name__ == "__main__":
 
     # Jalankan background pre-warming cache BPS (tiap 6 jam)
     start_prewarm_thread(interval_hours=6)
+    # Jalankan background timeout checker sesi (tiap 15 detik)
+    start_session_timeout_thread(check_interval=15)
 
     # Jalankan dengan Waitress (WSGI server produksi) jika tersedia, fallback ke app.run()
     try:

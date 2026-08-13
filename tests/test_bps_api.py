@@ -107,6 +107,25 @@ class TestBpsApi(unittest.TestCase):
         res = bps_api.cari_data_bps("xyz_unknown_keyword_123")
         self.assertIsNone(res)
 
+    def test_cari_tabel_terbaru_bps(self):
+        with patch("bps_api.requests.post") as mock_post, patch("bps_api._request_bps") as mock_req:
+            mock_post.side_effect = Exception("Offline")
+            mock_req.return_value = {
+                "status": "OK",
+                "data": [
+                    {"page": 1},
+                    [
+                        {"table_id": 1, "title": "Jumlah Penduduk A", "updt_date": "2026-02-12"},
+                        {"table_id": 2, "title": "Jumlah Penduduk B", "updt_date": "2026-02-10"},
+                        {"table_id": 3, "title": "Jumlah Penduduk C", "updt_date": "2025-01-01"},
+                    ]
+                ]
+            }
+            res = bps_api.cari_tabel_terbaru_bps("jumlah penduduk", limit=2)
+            self.assertEqual(len(res), 2)
+            self.assertEqual(res[0]["title"], "Jumlah Penduduk A")
+            self.assertEqual(res[1]["title"], "Jumlah Penduduk B")
+
 
 if __name__ == "__main__":
     unittest.main()

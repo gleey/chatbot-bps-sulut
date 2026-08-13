@@ -6,7 +6,7 @@ import os
 import time
 from db import get_conn, init_db
 
-SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "600"))
+SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "300"))
 
 
 class SessionManager:
@@ -135,8 +135,44 @@ class SessionManager:
         finally:
             conn.close()
 
+    def get_operator_sessions(self):
+        """Ambil semua sesi aktif yang berstatus 'operator' beserta riwayat obrolannya."""
+        conn = get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT phone, last_active, tujuan FROM sessions WHERE step='operator' ORDER BY last_active DESC"
+            ).fetchall()
+            results = []
+            for r in rows:
+                phone = r["phone"]
+                msgs = conn.execute(
+                    "SELECT role, text, ts FROM messages WHERE phone=? ORDER BY id",
+                    (phone,),
+                ).fetchall()
+                results.append({
+                    "phone": phone,
+                    "tujuan": r["tujuan"],
+                    "last_active": r["last_active"],
+                    "messages": [{"role": m["role"], "text": m["text"], "ts": m["ts"]} for m in msgs],
+                })
+            return results
+        finally:
+            conn.close()
+
+    def get_expired_sessions(self):
+        """Ambil daftar nomor telepon yang sesinya sudah kedaluwarsa (> 5 menit) dan belum di-reset."""
+        conn = get_conn()
+        try:
+            cutoff = time.time() - SESSION_TIMEOUT
+            rows = conn.execute(
+                "SELECT phone FROM sessions WHERE last_active <= ?", (cutoff,)
+            ).fetchall()
+            return [r["phone"] for r in rows]
+        finally:
+            conn.close()
+
     def cleanup_expired(self):
-        """Hapus semua sesi yang sudah melewati batas waktu (30 menit) dari database."""
+        """Hapus semua sesi yang sudah melewati batas waktu dari database."""
         conn = get_conn()
         try:
             cutoff = time.time() - SESSION_TIMEOUT

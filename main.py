@@ -5,10 +5,12 @@ Gemini memberikan ringkasan jawaban + link sumber otomatis.
 """
 import difflib
 import logging
+from datetime import datetime, timezone, timedelta
+
 from llm_engine import analisis_pesan, test_api_connection, set_offline_mode, is_offline_mode
 from session_manager import SessionManager
 from config import BPS_CATEGORIES
-from bps_api import cari_data_bps
+from bps_api import cari_data_bps, cari_tabel_terbaru_bps
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,20 @@ session_mgr = SessionManager()
 
 # Lookup table case-insensitive (dibuat sekali)
 _CATEGORIES_LOWER = {k.lower(): v for k, v in BPS_CATEGORIES.items()}
+
+# WITA = UTC+8
+WITA = timezone(timedelta(hours=8))
+
+
+def is_jam_kerja():
+    """Cek apakah saat ini jam kerja BPS Sulut (Senin–Jumat, 08.00–15.30 WITA)."""
+    now = datetime.now(WITA)
+    # 0 = Senin, 4 = Jumat, 5 = Sabtu, 6 = Minggu
+    if now.weekday() > 4:
+        return False
+    # Jam 08.00 (8*60 = 480 menit) s/d 15.30 (15*60 + 30 = 930 menit)
+    m = now.hour * 60 + now.minute
+    return 480 <= m <= 990
 
 
 # ============================================================
@@ -91,19 +107,24 @@ def _step_pilih_layanan(phone, msg, session):
     pesan_lower = msg.strip().lower()
 
     if "pengaduan" in pesan_lower or pesan_lower == "1":
-        balasan = (
-            "Anda memilih Pengaduan.\n\n"
-            "Silakan hubungi BPS Provinsi Sulawesi Utara melalui:\n"
-            "📞 Telepon: (0431) 847044\n"
-            "📧 Email: bps7100@bps.go.id\n"
-            "📠 Faks: (0431) 842206\n"
-            "📍 Alamat: Jl. 17 Agustus, Manado, Sulawesi Utara 95119\n"
-            "📷 Instagram: @bpsprovsulut (https://instagram.com/bpsprovsulut)\n\n"
-            "🕗 Jam Pelayanan: Senin–Jumat, 08.00–15.30 WITA"
-        )
-        session_mgr.add_to_history(phone, "model", balasan)
-        session_mgr.reset(phone)
-        return _reply(phone, balasan)
+        if is_jam_kerja():
+            balasan = "Anda memilih Pengaduan. Menghubungkan Anda dengan operator petugas BPS... Mohon ditunggu ya."
+            session_mgr.add_to_history(phone, "model", balasan)
+            session_mgr.set_step(phone, "operator")
+            return _reply(phone, balasan)
+        else:
+            balasan = (
+                "Mohon maaf, Anda menghubungi kami di luar jam kerja layanan (Jam Kerja: Senin–Jumat, 08.00–15.30 WITA) sehingga operator tidak aktif.\n\n"
+                "Silakan hubungi BPS Sulawesi Utara pada jam kerja atau melalui kontak resmi berikut:\n"
+                "📞 Telepon: (0431) 847044\n"
+                "📧 Email: bps7100@bps.go.id\n"
+                "📠 Faks: (0431) 842206\n"
+                "📍 Alamat: Jl. 17 Agustus, Manado, Sulawesi Utara 95119\n"
+                "📷 Instagram: @bpsprovsulut"
+            )
+            session_mgr.add_to_history(phone, "model", balasan)
+            session_mgr.reset(phone)
+            return _reply(phone, balasan)
 
     if "konsultasi" in pesan_lower or pesan_lower == "2":
         if is_offline_mode():
@@ -155,7 +176,9 @@ def _step_gemini_tanya_data(phone, msg, session):
 
     if intent == "cari_data":
         kategori_gemini = analisis.get("kategori_cocok", "")
-        tujuan_text = kategori_gemini or analisis.get("tujuan", "") or msg
+        # Gunakan kata kunci spesifik pengguna untuk pencarian data/tabel BPS,
+        # dan gunakan kategori_gemini sebagai fallback.
+        tujuan_text = analisis.get("tujuan", "").strip() or msg.strip()
 
         link_bps = None
         if kategori_gemini:
@@ -175,7 +198,18 @@ def _step_gemini_tanya_data(phone, msg, session):
             if bps_data and bps_data.get("found"):
                 balasan += f"\n\n📌 *Data Resmi Terbaru ({bps_data['title']})*:\n{bps_data['naratif']}"
 
-            balasan += f"\n\n🔗 Tabel Data Statistik Website BPS:\n{link_bps}"
+            tabel_terbaru = cari_tabel_terbaru_bps(tujuan_text, subject_url=link_bps, limit=2)
+            if tabel_terbaru:
+                balasan += "\n\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:"
+                for idx, t in enumerate(tabel_terbaru, 1):
+                    tgl = f" ({t['date']})" if t.get("date") else ""
+                    balasan += f"\n{idx}. *{t['title']}*{tgl}\n🔗 {t['url']}"
+            else:
+                balasan += (
+                    f"\n\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:\n"
+                    f"Akses tabel statistik yang terakhir diperbarui melalui tautan berikut:\n"
+                    f"🔗 {link_bps}"
+                )
 
         balasan += "\n\nApakah Anda puas dengan informasi ini?"
 
@@ -219,7 +253,20 @@ def _step_rule_based_tanya_data(phone, msg, session):
         bps_data = cari_data_bps(msg)
         if bps_data and bps_data.get("found"):
             balasan += f"\n📌 *{bps_data['title']}*:\n{bps_data['naratif']}\n"
-        balasan += f"\n🔗 Link Tabel BPS: {link_bps}\n\n"
+
+        tabel_terbaru = cari_tabel_terbaru_bps(msg, subject_url=link_bps, limit=2)
+        if tabel_terbaru:
+            balasan += "\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:"
+            for idx, t in enumerate(tabel_terbaru, 1):
+                tgl = f" ({t['date']})" if t.get("date") else ""
+                balasan += f"\n{idx}. *{t['title']}*{tgl}\n🔗 {t['url']}"
+            balasan += "\n\n"
+        else:
+            balasan += (
+                f"\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:\n"
+                f"Akses tabel statistik yang terakhir diperbarui melalui tautan berikut:\n"
+                f"🔗 {link_bps}\n\n"
+            )
     else:
         balasan += f"\n🔗 Website BPS Sulut: https://sulut.bps.go.id\n\n"
         
@@ -244,14 +291,22 @@ def _step_kepuasan(phone, msg, session):
 
     # Match exact untuk hindari false positive (#16)
     if pesan_clean in ("tidak", "no", "tdk", "blm", "belum"):
-        if is_offline_mode():
-            session_mgr.set_step(phone, "rule_based_tanya_data")
-            balasan = "Mohon maaf jika jawaban belum memuaskan. Data apa lagi yang ingin Anda cari?\n\nJika sudah tidak ada, silakan ketik *Selesai*."
+        if is_jam_kerja():
+            balasan = "Mohon maaf jika jawaban belum memuaskan. Menghubungkan Anda dengan operator petugas BPS... Mohon ditunggu ya."
+            session_mgr.add_to_history(phone, "model", balasan)
+            session_mgr.set_step(phone, "operator")
+            return _reply(phone, balasan)
         else:
-            session_mgr.set_step(phone, "gemini_tanya_data")
-            balasan = "Mohon maaf jika jawaban belum memuaskan. Silakan ketik pertanyaan atau data yang Anda cari selanjutnya.\n\nJika sudah tidak ada, silakan ketik *Selesai*."
-        session_mgr.add_to_history(phone, "model", balasan)
-        return _reply(phone, balasan)
+            balasan = (
+                "Mohon maaf jika jawaban belum memuaskan. saat ini layanan di luar jam kerja (Jam Kerja: Senin–Jumat, 08.00–15.30 WITA) sehingga operator tidak aktif.\n\n"
+                "Anda dapat menghubungi BPS Sulawesi Utara pada jam kerja atau melalui kontak resmi berikut:\n"
+                "📞 Telepon: (0431) 847044\n"
+                "📧 Email: bps7100@bps.go.id\n"
+                "📍 Alamat: Jl. 17 Agustus, Manado, Sulawesi Utara 95119"
+            )
+            session_mgr.add_to_history(phone, "model", balasan)
+            session_mgr.reset(phone)
+            return _reply(phone, balasan)
 
     if pesan_clean in ("ya", "yes", "iya", "yaa", "oke", "ok"):
         if is_offline_mode():
@@ -267,6 +322,17 @@ def _step_kepuasan(phone, msg, session):
     return _reply(phone, balasan)
 
 
+def _step_operator(phone, msg, session):
+    """Handler saat sesi diteruskan ke operator (bot diam/diteruskan)."""
+    # Cek apakah user ingin mengakhiri sesi operator
+    selesai = _handle_selesai(phone, msg)
+    if selesai:
+        return selesai
+    session_mgr.add_to_history(phone, "user", msg)
+    logger.info("Diteruskan ke operator: %s", phone)
+    return None
+
+
 # ============================================================
 # Dispatch table — map step name → handler function
 # ponytail: kalau state > 10, pakai library `transitions`
@@ -277,6 +343,7 @@ STATES = {
     "gemini_tanya_data": _step_gemini_tanya_data,
     "rule_based_tanya_data": _step_rule_based_tanya_data,
     "tanya_kepuasan": _step_kepuasan,
+    "operator": _step_operator,
 }
 
 

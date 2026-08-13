@@ -53,15 +53,42 @@ class TestStateMachine(unittest.TestCase):
         handle_incoming_message(self.phone, "halo")
         handle_incoming_message(self.phone, "Konsultasi")
         result = handle_incoming_message(self.phone, "kependudukan")
-        self.assertIn("subject=519", result["message"])
+        self.assertIn("statistics-table", result["message"])
 
+    @patch("main.is_jam_kerja", return_value=True)
     @patch("main.is_offline_mode", return_value=True)
-    def test_pengaduan_flow(self, mock_offline):
-        """Pilih pengaduan → operator."""
+    def test_pengaduan_flow_jam_kerja(self, mock_offline, mock_jam):
+        """Pilih pengaduan saat jam kerja → diteruskan ke operator."""
         handle_incoming_message(self.phone, "halo")
         result = handle_incoming_message(self.phone, "Pengaduan")
-        self.assertIn("pengaduan", result["message"].lower())
+        self.assertIn("operator", result["message"].lower())
+
+    @patch("main.is_jam_kerja", return_value=False)
+    @patch("main.is_offline_mode", return_value=True)
+    def test_pengaduan_flow_luar_jam_kerja(self, mock_offline, mock_jam):
+        """Pilih pengaduan di luar jam kerja → pesan permohonan maaf & kontak."""
+        handle_incoming_message(self.phone, "halo")
+        result = handle_incoming_message(self.phone, "Pengaduan")
+        self.assertIn("luar jam kerja", result["message"].lower())
         self.assertIn("bps7100@bps.go.id", result["message"])
+
+    @patch("main.is_jam_kerja", return_value=True)
+    def test_tidak_puas_jam_kerja(self, mock_jam):
+        """Tidak puas saat jam kerja → diteruskan ke operator."""
+        handle_incoming_message(self.phone, "halo")
+        handle_incoming_message(self.phone, "Konsultasi")
+        handle_incoming_message(self.phone, "kependudukan")
+        result = handle_incoming_message(self.phone, "Tidak")
+        self.assertIn("operator", result["message"].lower())
+
+    @patch("main.is_jam_kerja", return_value=False)
+    def test_tidak_puas_luar_jam_kerja(self, mock_jam):
+        """Tidak puas di luar jam kerja → permohonan maaf & kontak."""
+        handle_incoming_message(self.phone, "halo")
+        handle_incoming_message(self.phone, "Konsultasi")
+        handle_incoming_message(self.phone, "kependudukan")
+        result = handle_incoming_message(self.phone, "Tidak")
+        self.assertIn("luar jam kerja", result["message"].lower())
 
     @patch("main.is_offline_mode", return_value=True)
     def test_invalid_layanan(self, mock_offline):
