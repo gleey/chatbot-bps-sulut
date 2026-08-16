@@ -408,6 +408,7 @@ if __name__ == "__main__":
     try:
         from waitress import serve
         logger.info("Serving WSGI app di http://0.0.0.0:5000 (Waitress)")
+        logger.info("Dashboard Operator tersedia di: http://localhost:5000/operator")
         serve(app, host="0.0.0.0", port=5000)
     except ImportError:
         is_debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
