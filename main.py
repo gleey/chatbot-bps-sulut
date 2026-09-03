@@ -31,7 +31,7 @@ def is_jam_kerja():
         return False
     # Jam 08.00 (8*60 = 480 menit) s/d 15.30 (15*60 + 30 = 930 menit)
     m = now.hour * 60 + now.minute
-    return 480 <= m <= 990
+    return 480 <= m <= 930
 
 
 # ============================================================
