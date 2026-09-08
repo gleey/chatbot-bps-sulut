@@ -29,9 +29,9 @@ def is_jam_kerja():
     # 0 = Senin, 4 = Jumat, 5 = Sabtu, 6 = Minggu
     if now.weekday() > 4:
         return False
-    # Jam 08.00 (8*60 = 480 menit) s/d 15.30 (15*60 + 30 = 930 menit)
+    # Jam 08.00 (8*60 = 480 menit) s/d 16.00 (16*60 = 960 menit)
     m = now.hour * 60 + now.minute
-    return 480 <= m <= 930
+    return 480 <= m <= 960
 
 
 # ============================================================
