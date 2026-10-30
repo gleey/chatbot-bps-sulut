@@ -294,6 +294,9 @@ class ProviderTests(unittest.TestCase):
         self.assertIn("timeout", post.call_args.kwargs)
         post.return_value.json.return_value = {"error": {"message": "failed"}}
         self.assertFalse(web.send_wa_message(PHONE, "hi"))
+        for malformed in [{"messages": "queued"}, {"messages": [{}]}]:
+            post.return_value.json.return_value = malformed
+            self.assertFalse(web.send_wa_message(PHONE, "hi"))
         post.return_value.json.return_value = {"status": False}
         self.assertFalse(web.send_fonnte_message(PHONE, "hi"))
         post.return_value.json.return_value = {"status": True}

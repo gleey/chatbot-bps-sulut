@@ -9,11 +9,11 @@ import logging
 import re
 import threading
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 import requests
 
 from db import get_conn, init_db
-from config import BPS_API_KEY, BPS_API_BASE, BPS_CACHE_TTL
+from config import BPS_API_KEY, BPS_API_BASE, BPS_CACHE_TTL, BPS_SERVER_ACTION_ID
 
 logger = logging.getLogger(__name__)
 TIMEOUT = 8  # detik (WA-friendly timeout)
@@ -284,7 +284,7 @@ def _cache_set(cache_key: str, response: dict):
         conn.close()
 
 
-def _request_bps(endpoint_path: str):
+def _request_bps(endpoint_path: str, **params):
     """HTTP GET ke Web API BPS dengan caching 24 jam."""
     if not BPS_API_KEY:
         logger.warning("BPS_API_KEY belum di-set")
@@ -292,7 +292,10 @@ def _request_bps(endpoint_path: str):
 
     # URL format: {base}/{path}/key/{key}/
     url = f"{BPS_API_BASE}/{endpoint_path}/key/{BPS_API_KEY}/"
-    cache_key = hashlib.sha256(url.encode()).hexdigest()
+    query = urlencode(params)
+    if query:
+        url += "?" + query
+    cache_key = hashlib.sha256((endpoint_path + "?" + query).encode()).hexdigest()
 
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -305,20 +308,20 @@ def _request_bps(endpoint_path: str):
         resp.raise_for_status()
         data = resp.json()
 
-        if data.get("status") == "OK":
+        if isinstance(data, dict) and data.get("status") == "OK":
             _cache_set(cache_key, data)
             return data
         else:
-            logger.warning("BPS API response status not OK: %s", data.get("status"))
+            logger.warning("BPS API response tidak valid")
             return None
     except (requests.RequestException, ValueError) as e:
-        logger.error("BPS API request failed: %s", e)
+        logger.warning("BPS API request gagal (%s)", type(e).__name__)
         return None
 
 
 def _clean_html(html_text: str) -> str:
     """Hapus tag HTML dan unescape entity dari abstract BRS."""
-    if not html_text:
+    if not isinstance(html_text, str):
         return ""
 
     # 1. Unescape entity dulu (&lt;ul&gt; -> <ul>)
@@ -341,60 +344,36 @@ def _clean_html(html_text: str) -> str:
     return '\n'.join(cleaned_lines)
 
 
-def cari_tabel_terbaru_bps(keyword: str, limit: int = 2):
-    """
-    Cari tabel statistik BPS berdasarkan kata kunci dan kembalikan N tabel terbaru (by updt_date).
-    Returns:
-        list of dict: [{"title": ..., "updt_date": ..., "excel": ...}]
-    """
-    if not BPS_API_KEY:
+def _official_url(value):
+    if not isinstance(value, str) or not value or (BPS_API_KEY and BPS_API_KEY in value):
+        return ""
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        if (parsed.scheme == "https" and (host == "bps.go.id" or host.endswith(".bps.go.id"))
+                and not parsed.username and not parsed.password and parsed.port in (None, 443)):
+            return value
+    except ValueError:
+        pass
+    return ""
+
+
+def _items(data):
+    if not isinstance(data, dict):
         return []
-
-    keyword_clean = keyword.lower().strip()
-    match_filter = KEYWORD_SUBJECT_MAP.get(keyword_clean)
-    if not match_filter:
-        for k, v in KEYWORD_SUBJECT_MAP.items():
-            if k in keyword_clean:
-                match_filter = v
-                break
-
-    # Panggil statictable list
-    if match_filter:
-        filter_type, filter_id = match_filter
-        endpoint = f"list/model/statictable/domain/{DOMAIN_SULUT}/{filter_type}/{filter_id}/page/1"
-    else:
-        endpoint = f"list/model/statictable/domain/{DOMAIN_SULUT}/page/1"
-
-    data = _request_bps(endpoint)
-    if not data or "data" not in data or len(data["data"]) < 2:
+    values = data.get("data")
+    if not isinstance(values, list) or len(values) < 2 or not isinstance(values[1], list):
         return []
+    return [item for item in values[1] if isinstance(item, dict) and isinstance(item.get("title"), str)]
 
-    tables = data["data"][1]
-    if not isinstance(tables, list) or not tables:
-        return []
 
-    # Score & filter
-    kata_kunci = [k for k in keyword_clean.split() if len(k) > 2]
-    matched = []
-
-    for t in tables:
-        title = t.get("title", "").lower()
-        subj = (t.get("subj") or "").lower()
-        haystack = f"{title} {subj}"
-
-        score = 0
-        if keyword_clean in haystack:
-            score += 10
-        for kata in kata_kunci:
-            if kata in haystack:
-                score += 3
-
-        if score > 0 or not match_filter:
-            matched.append((score, t.get("updt_date", ""), t))
-
-    # Urutkan berdasarkan tanggal diperbarui (updt_date desc) lalu skor
-    matched.sort(key=lambda x: (x[1], x[0]), reverse=True)
-    return [item[2] for item in matched[:limit]]
+def _matches(keyword, text):
+    ignored = {"saya", "mau", "ingin", "cari", "butuh", "data", "statistik", "tentang", "mengenai",
+               "berapa", "berapakah", "tolong", "bisa", "tampilkan", "jumlah", "di", "dan", "yang",
+               "sulut", "sulawesi", "utara", "bps", "tahun", "terbaru", "untuk", "pada", "adalah"}
+    words = [word for word in re.findall(r"\w+", keyword.lower()) if word not in ignored and len(word) > 2]
+    text = text.lower()
+    return bool(words) and all(word in text for word in words)
 
 
 def cari_data_bps(keyword: str):
@@ -415,7 +394,7 @@ def cari_data_bps(keyword: str):
     keyword_clean = keyword.lower().strip()
     match_filter = None
 
-    for k, filter_info in KEYWORD_SUBJECT_MAP.items():
+    for k, filter_info in sorted(KEYWORD_SUBJECT_MAP.items(), key=lambda pair: len(pair[0]), reverse=True):
         if k in keyword_clean:
             match_filter = filter_info
             break
@@ -430,10 +409,7 @@ def cari_data_bps(keyword: str):
         endpoint = f"list/model/pressrelease/domain/{DOMAIN_SULUT}/page/1"
         data = _request_bps(endpoint)
 
-    if not data or "data" not in data or len(data["data"]) < 2:
-        return None
-
-    press_releases = data["data"][1]
+    press_releases = _items(data)
     if not isinstance(press_releases, list) or not press_releases:
         return None
 
@@ -444,8 +420,10 @@ def cari_data_bps(keyword: str):
 
     for brs in press_releases:
         title = brs.get("title", "").lower()
-        subcat = (brs.get("subcsa") or "").lower()
+        subcat = str(brs.get("subcsa") or "").lower()
         haystack = f"{title} {subcat}"
+        if not _matches(keyword_clean, haystack):
+            continue
 
         score = 0
         # Exact keyword match
@@ -478,125 +456,75 @@ def cari_data_bps(keyword: str):
         "title": best_brs.get("title", ""),
         "naratif": abstract_clean,
         "tanggal": best_brs.get("rl_date", ""),
-        "link_pdf": best_brs.get("pdf", ""),
+        "link_pdf": _official_url(best_brs.get("pdf", "")),
     }
 
 
 def cari_tabel_terbaru_bps(keyword: str, subject_url: str = None, limit: int = 2):
-    """
-    Cari hingga `limit` link tabel statistik BPS Sulut terbaru (individual table URLs).
-    Menggunakan BPS Sulut website Server Action & caching SQLite 24 jam.
-    """
-    subject_id = None
-    if subject_url and "subject=" in subject_url:
-        try:
-            subject_id = int(subject_url.split("subject=")[1].split("&")[0])
-        except (ValueError, IndexError):
-            pass
+    """Search official API first; return download URLs or clearly labelled catalog links.
 
+    Only the returned page is ranked. This is not a guarantee of the newest table
+    across the complete BPS catalog. Website Server Action is an optional fallback.
+    """
     kw_clean = keyword.lower().strip()
-    cache_key = hashlib.sha256(f"tabel_terbaru_{subject_id}_{kw_clean}".encode()).hexdigest()
-
+    if not kw_clean:
+        return []
+    limit = max(1, min(limit, 10))
+    catalog = _official_url(subject_url) or "https://sulut.bps.go.id/id/statistics-table"
+    cache_key = hashlib.sha256(f"tables_v2_{catalog}_{kw_clean}_{limit}".encode()).hexdigest()
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
+    data = _request_bps(f"list/model/statictable/domain/{DOMAIN_SULUT}/page/1", keyword=kw_clean)
     results = []
+    for item in _items(data):
+        if not _matches(kw_clean, f"{item['title']} {item.get('subj', '')}"):
+            continue
+        download = _official_url(item.get("excel"))
+        url = download or _official_url(item.get("url"))
+        results.append({**item, "url": url or catalog,
+                        "date": str(item.get("updt_date") or "")[:10],
+                        "source_type": "unduhan resmi" if download else ("halaman resmi" if url else "katalog subjek")})
+    results.sort(key=lambda item: item["date"], reverse=True)
+    if results:
+        _cache_set(cache_key, results[:limit])
+        return results[:limit]
 
     # Coba panggil Next.js Server Action BPS Sulut
+    # shortcut: Website action IDs change; enable only after checking the current site contract.
+    if not BPS_SERVER_ACTION_ID:
+        return []
     try:
-        action_url = "https://sulut.bps.go.id/id/statistics-table"
-        action_id = "4072f1ccc0a450ad525ef0ea7d1d36e0d0e8f00f8d"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
-            "Next-Action": action_id,
-            "Content-Type": "text/plain;charset=UTF-8",
-            "Accept": "text/x-component",
-        }
-
-        payload = {
-            "locale": "id",
-            "page": 1,
-            "perpage": 10,
-            "sortBy": "date",
-            "sortOrder": "desc",
-        }
-        if subject_id:
-            payload["subject"] = subject_id
-
-        items = []
-
-        # Cari via kata kunci — hanya tampilkan tabel yang cocok dengan keyword
-        if kw_clean:
-            kw_payload = dict(payload)
-            kw_payload["keyword"] = kw_clean
-            try:
-                resp = requests.post(action_url, headers=headers, data=json.dumps([kw_payload]), timeout=TIMEOUT)
-                if resp.status_code == 200:
-                    for line in resp.text.split("\n"):
-                        if line.startswith("1:"):
-                            data = json.loads(line[2:])
-                            if data.get("status") and data.get("response", {}).get("status") == "OK":
-                                items = data["response"]["data"][1]
-                            break
-            except Exception as e:
-                logger.warning("BPS Server Action keyword search failed: %s", e)
-
-        for item in items[:limit]:
-            title = item.get("title", "")
-            slug = title.lower().replace("%", "-persen")
-            slug = re.sub(r"[^a-zA-Z0-9]", "-", slug)
-
-            tablesource = str(item.get("tablesource", ""))
-            table_id = item.get("id", "")
-            latest_period = item.get("latest_period", "")
-
-            table_url = f"https://sulut.bps.go.id/id/statistics-table/{tablesource}/{table_id}/{slug}.html"
-            if tablesource == "3" and latest_period:
-                table_url += f"?year={latest_period}"
-
-            date_str = item.get("last_update", "")[:10]
-            results.append({
-                "title": title,
-                "url": table_url,
-                "date": date_str,
-            })
-
-    except Exception as e:
-        logger.error("Error fetching live table links from BPS Sulut: %s", e)
-
+        payload = {"locale": "id", "page": 1, "perpage": 10, "keyword": kw_clean,
+                   "sortBy": "date", "sortOrder": "desc"}
+        resp = requests.post("https://sulut.bps.go.id/id/statistics-table",
+                             headers={"Next-Action": BPS_SERVER_ACTION_ID,
+                                      "Content-Type": "text/plain;charset=UTF-8", "Accept": "text/x-component"},
+                             data=json.dumps([payload]), timeout=TIMEOUT)
+        resp.raise_for_status()
+        for line in resp.text.splitlines():
+            if not line.startswith("1:"):
+                continue
+            envelope = json.loads(line[2:])
+            for item in _items(envelope.get("response", {}) if isinstance(envelope, dict) else {}):
+                # Do not construct a URL from a guessed slug or table ID.
+                url = _official_url(item.get("url"))
+                if url and _matches(kw_clean, item["title"]):
+                    results.append({"title": item["title"], "url": url,
+                                    "date": str(item.get("last_update") or "")[:10],
+                                    "source_type": "halaman resmi dari website"})
+    except (requests.RequestException, ValueError, TypeError, AttributeError) as error:
+        logger.warning("BPS Server Action gagal (%s)", type(error).__name__)
     if results:
-        _cache_set(cache_key, results)
-        return results
-
-    # Fallback ke pencarian BPS Web API jika live website offline
-    kata_kunci = [k for k in kw_clean.split() if len(k) > 2]
-    matched = []
-    data_st = _request_bps(f"list/model/statictable/domain/{DOMAIN_SULUT}/page/1")
-    if data_st and "data" in data_st and len(data_st["data"]) > 1:
-        tables = data_st["data"][1]
-        if isinstance(tables, list):
-            for t in tables:
-                t_title = t.get("title", "")
-                subj = t.get("subj", "")
-                haystack = f"{t_title} {subj}".lower()
-                if kw_clean in haystack or (kata_kunci and all(k in haystack for k in kata_kunci)):
-                    matched.append({
-                        "title": t_title,
-                        "url": subject_url or "https://sulut.bps.go.id",
-                        "date": t.get("updt_date", ""),
-                    })
-
-    if matched:
-        _cache_set(cache_key, matched[:limit])
-
-    return matched[:limit]
+        _cache_set(cache_key, results[:limit])
+    return results[:limit]
 
 
 def prewarm_cache():
     """
     Background job: Pre-fetch BRS terbaru + BRS kategori utama Sulut ke SQLite cache.
-    Tujuan: Menjamin respons sub-100ms saat user bertanya di WA/Terminal.
+    Tujuan: Mengurangi permintaan eksternal; waktu respons harus diukur pada lingkungan target.
     """
     if not BPS_API_KEY:
         logger.info("Prewarm skipped: BPS_API_KEY belum diset")
@@ -629,7 +557,7 @@ def start_prewarm_thread(interval_hours=6):
             try:
                 prewarm_cache()
             except Exception as e:
-                logger.error("Error dalam prewarm thread: %s", e)
+                logger.error("Prewarm worker gagal (%s)", type(e).__name__)
             time.sleep(interval_hours * 3600)
 
     t = threading.Thread(target=_loop, daemon=True, name="BPSPrewarmThread")

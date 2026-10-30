@@ -38,6 +38,13 @@ install_auth(app)
 # ============================================================
 # Kirim pesan — Meta Cloud API
 # ============================================================
+def _meta_accepted(payload):
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    return isinstance(messages, list) and bool(messages) and all(
+        isinstance(message, dict) and isinstance(message.get("id"), str) and bool(message["id"])
+        for message in messages)
+
+
 def send_wa_message(target, message):
     if not META_ACCESS_TOKEN or not META_PHONE_NUMBER_ID or not META_API_VERSION:
         logger.error("META_ACCESS_TOKEN atau META_PHONE_NUMBER_ID belum di-set!")
@@ -59,7 +66,7 @@ def send_wa_message(target, message):
         response = requests.post(url, headers=headers, json=data, timeout=10)
         response.raise_for_status()
         result = response.json()
-        return isinstance(result, dict) and bool(result.get("messages"))
+        return _meta_accepted(result)
     except (requests.exceptions.RequestException, ValueError) as e:
         logger.warning("Pengiriman Meta gagal (%s)", type(e).__name__)
         return False
@@ -97,7 +104,7 @@ def send_wa_interactive_button(target, text_body, buttons):
         response = requests.post(url, headers=headers, json=data, timeout=10)
         response.raise_for_status()
         result = response.json()
-        return isinstance(result, dict) and bool(result.get("messages"))
+        return _meta_accepted(result)
     except (requests.exceptions.RequestException, ValueError) as e:
         logger.warning("Pengiriman tombol Meta gagal (%s)", type(e).__name__)
         return False

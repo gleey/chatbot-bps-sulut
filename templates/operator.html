@@ -35,8 +35,8 @@
       <span class="navbar-brand mb-0 h1 fs-5">
         <i class="bi bi-headset me-2"></i> Dashboard Operator — BPS Sulawesi Utara
       </span>
-      <span class="badge bg-success py-2 px-3 fs-6" id="status-badge">
-        <i class="bi bi-circle-fill me-1 small"></i> Live Connected
+      <span class="badge bg-secondary py-2 px-3 fs-6" id="status-badge">
+        <i class="bi bi-circle-fill me-1 small"></i> Memuat koneksi...
       </span>
       <form method="post" action="/operator/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -122,7 +122,7 @@
         const data = await res.json();
         if (data.status === 'ok') {
           statusBadge.textContent = 'Terhubung · polling 5 detik';
-          statusBadge.classList.replace('bg-danger', 'bg-success');
+          statusBadge.className = 'badge bg-success py-2 px-3 fs-6';
           sessionsData = data.sessions;
           renderSessionList();
           if (activePhone) {
@@ -136,7 +136,7 @@
         }
       } catch (err) {
         statusBadge.textContent = 'Koneksi gagal · coba muat ulang';
-        statusBadge.classList.replace('bg-success', 'bg-danger');
+        statusBadge.className = 'badge bg-danger py-2 px-3 fs-6';
       } finally {
         loading = false;
       }
@@ -244,7 +244,7 @@
 
     async function closeSession() {
       if (!activePhone) return;
-      if (!confirm(`Selesaikan sesi pengaduan untuk +${activePhone}? Sesi akan di-reset dan bot akan aktif kembali.`)) return;
+      if (!confirm(`Selesaikan sesi pengaduan untuk +${activePhone}? Percakapan akan diarsipkan dan bot akan aktif kembali.`)) return;
 
       try {
         const res = await fetch('/api/operator/close', {

@@ -5,38 +5,44 @@ Mendukung rotasi API Key dan Model secara otomatis saat terjadi 429/404.
 import json
 import logging
 import time
+import threading
 from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
 from config import (
     GEMINI_API_KEYS, GEMINI_MODELS, MODEL_NAME,
-    SYSTEM_PROMPT, ROTATOR_COOLDOWN,
+    SYSTEM_PROMPT, ROTATOR_COOLDOWN, GEMINI_TIMEOUT_SECONDS, GEMINI_MAX_ATTEMPTS,
 )
 
 logger = logging.getLogger(__name__)
 
 _offline_mode = False
+_offline_since = 0
 
 
 def set_offline_mode(value):
-    global _offline_mode
+    global _offline_mode, _offline_since
     _offline_mode = value
+    _offline_since = time.monotonic()
 
 
 def is_offline_mode():
-    return _offline_mode
+    if _offline_mode and GEMINI_API_KEYS and time.monotonic() - _offline_since >= ROTATOR_COOLDOWN:
+        set_offline_mode(False)
+    return _offline_mode or not GEMINI_API_KEYS
 
 
 # ============================================================
 # Key & Model Rotator
 # ============================================================
 class _KeyRotator:
-    """Round-robin API key rotator dengan cooldown otomatis."""
+    """Ordered API key failover dengan cooldown otomatis."""
 
     def __init__(self, keys, cooldown=300):
         self.keys = keys if keys else []
         self.failed = {}  # index -> timestamp gagal
         self.cooldown = cooldown
+        self._lock = threading.RLock()
 
     def _reset_expired(self):
         now = time.time()
@@ -46,18 +52,18 @@ class _KeyRotator:
 
     def get_available_keys(self):
         """Return list (index, key) yang belum gagal atau sudah melewati cooldown."""
-        self._reset_expired()
-        return [(i, k) for i, k in enumerate(self.keys) if i not in self.failed]
+        with self._lock:
+            self._reset_expired()
+            return [(i, k) for i, k in enumerate(self.keys) if i not in self.failed]
 
     def mark_failed(self, index):
-        self.failed[index] = time.time()
-        key_masked = self.keys[index][-6:] if len(self.keys[index]) > 6 else "***"
-        logger.warning("Rotator: key ...%s ditandai gagal (%d/%d aktif)",
-                       key_masked, len(self.keys) - len(self.failed), len(self.keys))
+        with self._lock:
+            self.failed[index] = time.time()
+            logger.warning("Rotator: key #%d ditandai gagal (%d/%d aktif)",
+                           index + 1, len(self.keys) - len(self.failed), len(self.keys))
 
     def has_available(self):
-        self._reset_expired()
-        return any(i not in self.failed for i in range(len(self.keys)))
+        return bool(self.get_available_keys())
 
 
 class _ModelRotator:
@@ -67,6 +73,7 @@ class _ModelRotator:
         self.models = models if models else []
         self.failed = {}  # index -> timestamp gagal
         self.cooldown = cooldown
+        self._lock = threading.RLock()
 
     def _reset_expired(self):
         now = time.time()
@@ -75,18 +82,17 @@ class _ModelRotator:
             del self.failed[i]
 
     def get_available_models(self):
-        self._reset_expired()
-        return [(i, m) for i, m in enumerate(self.models) if i not in self.failed]
+        with self._lock:
+            self._reset_expired()
+            return [(i, m) for i, m in enumerate(self.models) if i not in self.failed]
 
     def mark_failed(self, index):
-        logger.warning("Rotator: model '%s' ditandai gagal (%d/%d aktif)",
-                       self.models[index],
-                       len(self.models) - len(self.failed) - 1, len(self.models))
-        self.failed[index] = time.time()
+        with self._lock:
+            self.failed[index] = time.time()
+            logger.warning("Rotator: model '%s' ditandai gagal", self.models[index])
 
     def has_available(self):
-        self._reset_expired()
-        return any(i not in self.failed for i in range(len(self.models)))
+        return bool(self.get_available_models())
 
 
 # Singleton instances
@@ -117,57 +123,53 @@ def _call_gemini(contents, system_instruction, temperature=0.7):
     Raises: RuntimeError jika semua kombinasi gagal
     """
     last_error = "Tidak ada API key atau model yang tersedia."
-
+    deadline = time.monotonic() + GEMINI_TIMEOUT_SECONDS
+    attempts = 0
     for model_idx, model_name in _model_rotator.get_available_models():
         for key_idx, api_key in _key_rotator.get_available_keys():
+            remaining = deadline - time.monotonic()
+            if attempts >= GEMINI_MAX_ATTEMPTS or remaining <= 0:
+                raise RuntimeError("Batas percobaan atau waktu layanan Gemini tercapai")
+            attempts += 1
+            client = None
             try:
-                client = genai.Client(api_key=api_key)
+                client = genai.Client(api_key=api_key, http_options=types.HttpOptions(
+                    timeout=max(1, int(remaining * 1000)),
+                    retry_options=types.HttpRetryOptions(attempts=1)))
                 response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
+                    model=model_name, contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=system_instruction,
-                        temperature=temperature,
-                    ),
-                )
+                        temperature=temperature, response_mime_type="application/json", max_output_tokens=1024))
                 # Berhasil — log jika bukan model/key utama
                 if model_idx > 0 or key_idx > 0:
-                    logger.info("Rotator: berhasil dengan model='%s', key #%d",
-                                model_name, key_idx + 1)
+                    logger.info("Rotator: berhasil dengan model='%s', key #%d", model_name, key_idx + 1)
                 return response
-
-            except genai_errors.ClientError as e:
-                error_msg = str(e)
-
-                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-                    _key_rotator.mark_failed(key_idx)
-                    last_error = error_msg
-                    continue  # coba key berikutnya, model sama
-
-                if "404" in error_msg or "NOT_FOUND" in error_msg:
+            except genai_errors.APIError as error:
+                code = error.code
+                last_error = f"Gemini HTTP {code}"
+                if code in (404, 503):
                     _model_rotator.mark_failed(model_idx)
-                    last_error = error_msg
                     break  # pindah model, key di-reset
-
+                if code in (429, 401, 403):
+                    _key_rotator.mark_failed(key_idx)
+                    continue  # coba key berikutnya, model sama
                 # Error lain (400 bad request, 403 forbidden, dll)
-                logger.error("Gemini error (model=%s, key #%d): %s",
-                             model_name, key_idx + 1, error_msg)
-                last_error = error_msg
-                _key_rotator.mark_failed(key_idx)
-                continue
-
-            except Exception as e:
-                logger.error("Error tidak terduga: %s", e)
-                last_error = str(e)
-                _key_rotator.mark_failed(key_idx)
-                continue
-
+                raise RuntimeError(last_error) from None
+            except Exception as error:
+                logger.warning("Koneksi Gemini gagal (%s)", type(error).__name__)
+                raise RuntimeError("Koneksi Gemini tidak tersedia") from None
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception as error:
+                        logger.warning("Penutupan koneksi Gemini gagal (%s)", type(error).__name__)
         # Semua key habis untuk model ini — tandai model gagal juga
         if not _key_rotator.has_available():
-            _model_rotator.mark_failed(model_idx)
             # Reset key untuk model berikutnya
-            _key_rotator.failed.clear()
-
+            # Quota cooldown must survive subsequent requests; do not clear failed keys here.
+            break
     raise RuntimeError(last_error)
 
 
@@ -201,7 +203,7 @@ def analisis_pesan(history, info_terkumpul=None):
             pesan_baru = msg["parts"][0]["text"]
             break
 
-    if _offline_mode:
+    if is_offline_mode():
         return _fallback_offline(pesan_baru)
 
     # Sertakan info yang sudah terkumpul agar Gemini punya konteks
@@ -214,6 +216,7 @@ def analisis_pesan(history, info_terkumpul=None):
             context_prefix = f"[INFO TERKUMPUL: {', '.join(collected)}]\n"
 
     contents = []
+    history = [msg for msg in history if msg["role"] in {"user", "model"}][-30:]
     for i, msg in enumerate(history):
         text = msg["parts"][0]["text"]
         if i == len(history) - 1 and msg["role"] == "user":
@@ -244,13 +247,12 @@ def analisis_pesan(history, info_terkumpul=None):
             response_text = "\n".join(lines)
 
         hasil = json.loads(response_text)
-    except json.JSONDecodeError:
-        hasil = {
-            "intent": "lainnya",
-            "tujuan": "",
-            "kategori_cocok": "",
-            "balasan": (response.text or "").strip(),
-        }
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _fallback_offline(pesan_baru)
+    if not isinstance(hasil, dict) or any(not isinstance(value, str) for value in hasil.values()):
+        return _fallback_offline(pesan_baru)
+    if hasil.get("intent") not in {"greeting", "cari_data", "puas", "tidak_puas", "lainnya"}:
+        return _fallback_offline(pesan_baru)
 
     defaults = {
         "intent": "lainnya",

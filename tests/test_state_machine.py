@@ -7,9 +7,9 @@ from unittest.mock import patch
 # Setup test DB
 os.environ.setdefault("TESTING", "1")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests import support  # noqa: F401; isolate environment before application imports
 
 import db as database
-database.DB_PATH = "/tmp/opencode/test_state_%d.db" % os.getpid()
 database._initialized = False
 database.init_db()
 
@@ -25,7 +25,11 @@ class TestStateMachine(unittest.TestCase):
         self.phone = "08999"
         # Reset offline mode (test rotator bisa menyetelnya)
         from llm_engine import set_offline_mode
-        set_offline_mode(False)
+        set_offline_mode(True)
+        for name, value in [("main.cari_data_bps", None), ("main.cari_tabel_terbaru_bps", [])]:
+            mock = patch(name, return_value=value)
+            mock.start()
+            self.addCleanup(mock.stop)
 
     def tearDown(self):
         database.reset_db()
@@ -71,6 +75,7 @@ class TestStateMachine(unittest.TestCase):
         result = handle_incoming_message(self.phone, "Pengaduan")
         self.assertIn("luar jam kerja", result["message"].lower())
         self.assertIn("bps7100@bps.go.id", result["message"])
+        self.assertEqual(session_mgr.get_archives(self.phone)[-1]["kind"], "pengaduan")
 
     @patch("main.is_jam_kerja", return_value=True)
     def test_tidak_puas_jam_kerja(self, mock_jam):
@@ -103,6 +108,38 @@ class TestStateMachine(unittest.TestCase):
         session_mgr.set_step(self.phone, "invalid_step_xyz")
         result = handle_incoming_message(self.phone, "test")
         self.assertIn("kesalahan sesi", result["message"].lower())
+
+    def test_selesai_in_every_state_archives_and_resets(self):
+        from main import STATES
+        for step in STATES:
+            session_mgr.set_step(self.phone, step)
+            result = handle_incoming_message(self.phone, "Selesai")
+            self.assertIn("Terima kasih", result["message"])
+            self.assertEqual(session_mgr.get_or_create(self.phone)["step"], "awal")
+
+    def test_ya_resumes_consultation_and_invalid_answer_stays(self):
+        session_mgr.set_step(self.phone, "tanya_kepuasan")
+        handle_incoming_message(self.phone, "mungkin")
+        self.assertEqual(session_mgr.get_or_create(self.phone)["step"], "tanya_kepuasan")
+        handle_incoming_message(self.phone, "Ya")
+        self.assertEqual(session_mgr.get_or_create(self.phone)["step"], "rule_based_tanya_data")
+
+    def test_expired_session_returns_menu(self):
+        import time
+        session_mgr.set_step(self.phone, "tanya_kepuasan")
+        with database.get_conn() as conn:
+            conn.execute("UPDATE sessions SET last_active=?", (time.time() - 1000,))
+        handle_incoming_message(self.phone, "Ya")
+        self.assertEqual(session_mgr.get_or_create(self.phone)["step"], "pilih_layanan")
+
+    def test_working_hours_wita_boundaries_and_weekend(self):
+        from datetime import datetime
+        from main import is_jam_kerja, WITA
+        for day, hour, minute, expected in [(26, 7, 59, False), (26, 8, 0, True),
+                                            (26, 15, 30, True), (26, 15, 31, False), (31, 10, 0, False)]:
+            with patch("main.datetime") as clock:
+                clock.now.return_value = datetime(2026, 10, day, hour, minute, tzinfo=WITA)
+                self.assertEqual(is_jam_kerja(), expected)
 
 
 if __name__ == "__main__":

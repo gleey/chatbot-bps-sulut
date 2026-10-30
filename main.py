@@ -29,7 +29,7 @@ def is_jam_kerja():
     # 0 = Senin, 4 = Jumat, 5 = Sabtu, 6 = Minggu
     if now.weekday() > 4:
         return False
-    # Jam 08.00 (8*60 = 480 menit) s/d 15.30 (16*60 = 960 menit)
+    # Jam 08.00 (8*60 = 480 menit) s/d 15.30 (15*60+30 = 930 menit)
     m = now.hour * 60 + now.minute
     return 480 <= m <= 930
 
@@ -106,7 +106,8 @@ def _step_pilih_layanan(phone, msg, session):
     session_mgr.add_to_history(phone, "user", msg)
     pesan_lower = msg.strip().lower()
 
-    if "pengaduan" in pesan_lower or pesan_lower == "1":
+    if pesan_lower in {"pengaduan", "1", "btn_pengaduan"}:
+        session_mgr.mark_complaint(phone)
         if is_jam_kerja():
             balasan = "Anda memilih Pengaduan. Menghubungkan Anda dengan operator petugas BPS... Mohon ditunggu ya."
             session_mgr.add_to_history(phone, "model", balasan)
@@ -126,7 +127,7 @@ def _step_pilih_layanan(phone, msg, session):
             session_mgr.reset(phone)
             return _reply(phone, balasan)
 
-    if "konsultasi" in pesan_lower or pesan_lower == "2":
+    if pesan_lower in {"konsultasi", "2", "btn_konsultasi"}:
         if is_offline_mode():
             session_mgr.set_step(phone, "rule_based_tanya_data")
             balasan = "Anda memilih Konsultasi (Mode Offline). Data apa yang ingin Anda cari?"
@@ -152,77 +153,21 @@ def _handle_selesai(phone, msg):
 
 
 def _step_gemini_tanya_data(phone, msg, session):
-    # Cek apakah user ingin mengakhiri sesi
     selesai = _handle_selesai(phone, msg)
     if selesai:
         return selesai
-
-    # Simpan pesan user ke history DULU, lalu kirim history ke Gemini
-    # (analisis_pesan tidak menambah pesan baru lagi — fix #8 double message)
+    history = session_mgr.get_history(phone) + [{"role": "user", "parts": [{"text": msg}]}]
+    analisis = analisis_pesan(history, {"tujuan": session["tujuan"]})
+    if analisis.get("intent") == "tidak_puas":
+        return _step_kepuasan(phone, "Tidak", session)
+    kategori, _ = cari_link_otomatis(msg)
+    if analisis.get("intent") == "cari_data" or kategori or is_offline_mode():
+        # Simpan pesan user ke history DULU, lalu kirim history ke Gemini
+        # (analisis_pesan tidak menambah pesan baru lagi — fix #8 double message)
+        # Retrieval formats the answer; generated figures and URLs are never displayed.
+        return _step_rule_based_tanya_data(phone, msg, session)
     session_mgr.add_to_history(phone, "user", msg)
-    history = session_mgr.get_history(phone)
-    session = session_mgr.get_or_create(phone)
-    info_terkumpul = {
-        "tujuan": session["tujuan"],
-    }
-
-    analisis = analisis_pesan(history, info_terkumpul)
-    intent = analisis.get("intent", "lainnya")
-
-    session_mgr.update_info(
-        phone,
-        tujuan=analisis.get("tujuan"),
-    )
-
-    if intent == "cari_data":
-        kategori_gemini = analisis.get("kategori_cocok", "")
-        # Gunakan kata kunci spesifik pengguna untuk pencarian data/tabel BPS,
-        # dan gunakan kategori_gemini sebagai fallback.
-        tujuan_text = analisis.get("tujuan", "").strip() or msg.strip()
-
-        link_bps = None
-        if kategori_gemini:
-            if kategori_gemini.lower() in _CATEGORIES_LOWER:
-                link_bps = _CATEGORIES_LOWER[kategori_gemini.lower()]
-            else:
-                _, link_bps = cari_link_otomatis(kategori_gemini)
-                if link_bps == "https://sulut.bps.go.id":
-                    link_bps = None
-
-        ringkasan = analisis.get("balasan", "")
-        balasan = ringkasan
-
-        # HANYA lampirkan data BPS API dan link jika kategori data spesifik (link_bps) ditemukan/cocok
-        if link_bps:
-            bps_data = cari_data_bps(tujuan_text)
-            if bps_data and bps_data.get("found"):
-                balasan += f"\n\n📌 *Data Resmi Terbaru ({bps_data['title']})*:\n{bps_data['naratif']}"
-
-            tabel_terbaru = cari_tabel_terbaru_bps(tujuan_text, subject_url=link_bps, limit=2)
-            if tabel_terbaru:
-                balasan += "\n\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:"
-                for idx, t in enumerate(tabel_terbaru, 1):
-                    tgl = f" ({t['date']})" if t.get("date") else ""
-                    balasan += f"\n{idx}. *{t['title']}*{tgl}\n🔗 {t['url']}"
-            else:
-                balasan += (
-                    f"\n\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:\n"
-                    f"Akses tabel statistik yang terakhir diperbarui melalui tautan berikut:\n"
-                    f"🔗 {link_bps}"
-                )
-
-        balasan += "\n\nApakah Anda puas dengan informasi ini?"
-
-        buttons = [
-            {"id": "btn_ya", "title": "Ya"},
-            {"id": "btn_tidak", "title": "Tidak"},
-        ]
-        session_mgr.set_step(phone, "tanya_kepuasan")
-        session_mgr.add_to_history(phone, "model", balasan)
-        return _reply(phone, balasan, buttons)
-
-    # Intent bukan cari_data — balasan natural dari Gemini
-    balasan = analisis.get("balasan", "Ada yang bisa saya bantu?")
+    balasan = "Silakan sebutkan topik data statistik BPS yang Anda perlukan, misalnya inflasi atau kependudukan."
     session_mgr.add_to_history(phone, "model", balasan)
     return _reply(phone, balasan)
 
@@ -236,7 +181,7 @@ def _step_rule_based_tanya_data(phone, msg, session):
     session_mgr.add_to_history(phone, "user", msg)
     pesan_lower = msg.strip().lower()
     kategori_nama, link_bps = cari_link_otomatis(msg)
-    
+
     if link_bps == "https://sulut.bps.go.id":
         link_bps = None
 
@@ -248,28 +193,34 @@ def _step_rule_based_tanya_data(phone, msg, session):
         session_mgr.add_to_history(phone, "model", balasan)
         return _reply(phone, balasan)
 
-    balasan = f"Berikut adalah data BPS Sulut terkait *{msg}*:\n"
+    session_mgr.update_info(phone, tujuan=msg)
+    balasan = f"Hasil pencarian sumber BPS Sulut untuk *{msg[:200]}*:\n"
     if link_bps:
         bps_data = cari_data_bps(msg)
         if bps_data and bps_data.get("found"):
-            balasan += f"\n📌 *{bps_data['title']}*:\n{bps_data['naratif']}\n"
+            balasan += f"\n📌 *{bps_data['title']}* ({bps_data['tanggal']}):\n{bps_data['naratif'][:1600]}\n"
+            if bps_data.get("link_pdf"):
+                balasan += f"Sumber BPS: {bps_data['link_pdf']}\n"
+            balasan += "Cuplikan rilis resmi; cache maksimal 24 jam. Periode mengikuti judul rilis.\n"
+        else:
+            balasan += "Angka resmi yang sesuai belum tersedia dari API saat ini.\n"
 
         tabel_terbaru = cari_tabel_terbaru_bps(msg, subject_url=link_bps, limit=2)
         if tabel_terbaru:
-            balasan += "\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:"
+            balasan += "\n📊 *Hasil Tabel Statistik BPS Sulut*:"
             for idx, t in enumerate(tabel_terbaru, 1):
                 tgl = f" ({t['date']})" if t.get("date") else ""
-                balasan += f"\n{idx}. *{t['title']}*{tgl}\n🔗 {t['url']}"
+                balasan += f"\n{idx}. *{t['title']}*{tgl} ({t.get('source_type', 'sumber BPS')})\n🔗 {t['url']}"
             balasan += "\n\n"
         else:
             balasan += (
-                f"\n📊 *Tabel Data Statistik Terbaru BPS Sulut*:\n"
-                f"Akses tabel statistik yang terakhir diperbarui melalui tautan berikut:\n"
+                f"\n📊 *Hasil Tabel Statistik BPS Sulut*:\n"
+                f"Tabel individual belum ditemukan. Telusuri katalog resmi berikut:\n"
                 f"🔗 {link_bps}\n\n"
             )
     else:
         balasan += f"\n🔗 Website BPS Sulut: https://sulut.bps.go.id\n\n"
-        
+
     balasan += "Apakah Anda puas dengan hasil yang dikirimkan?"
     buttons = [
         {"id": "btn_ya", "title": "Ya"},
@@ -291,6 +242,7 @@ def _step_kepuasan(phone, msg, session):
 
     # Match exact untuk hindari false positive (#16)
     if pesan_clean in ("tidak", "no", "tdk", "blm", "belum"):
+        session_mgr.mark_complaint(phone)
         if is_jam_kerja():
             balasan = "Mohon maaf jika jawaban belum memuaskan. Menghubungkan Anda dengan operator petugas BPS... Mohon ditunggu ya."
             session_mgr.add_to_history(phone, "model", balasan)
@@ -329,7 +281,7 @@ def _step_operator(phone, msg, session):
     if selesai:
         return selesai
     session_mgr.add_to_history(phone, "user", msg)
-    logger.info("Diteruskan ke operator: %s", phone)
+    logger.info("Pesan diteruskan ke operator")
     return None
 
 
@@ -349,25 +301,29 @@ STATES = {
 
 def handle_incoming_message(phone_number, message_text):
     """Proses pesan masuk — dispatch ke handler berdasarkan step."""
-    # Bersihkan sesi kedaluwarsa secara berkala/saat ada pesan masuk.
-    session_mgr.cleanup_expired()
-    
-    session = session_mgr.get_or_create(phone_number)
-
-    if session_mgr.is_expired(phone_number):
-        session_mgr.reset(phone_number)
+    from webhook_utils import phone_lock
+    with phone_lock(phone_number):
         session = session_mgr.get_or_create(phone_number)
 
-    session_mgr.touch(phone_number)
-    step = session["step"]
+        if session_mgr.is_expired(phone_number):
+            session_mgr.reset(phone_number)
+            session = session_mgr.get_or_create(phone_number)
 
-    handler = STATES.get(step)
-    if handler is None:
-        logger.warning("Step tidak dikenal: %s, reset session %s", step, phone_number)
-        session_mgr.reset(phone_number)
-        return _reply(phone_number, "Maaf, terjadi kesalahan sesi. Silakan mulai ulang percakapan.")
+        session_mgr.touch(phone_number)
+        step = session["step"]
 
-    return handler(phone_number, message_text, session)
+        handler = STATES.get(step)
+        if handler is None:
+            logger.warning("Step sesi tidak dikenal; reset diperlukan")
+            session_mgr.reset(phone_number)
+            return _reply(phone_number, "Maaf, terjadi kesalahan sesi. Silakan mulai ulang percakapan.")
+
+        selesai = _handle_selesai(phone_number, message_text)
+        if selesai:
+            return selesai
+        if step in {"gemini_tanya_data", "rule_based_tanya_data"} and message_text.strip().lower() in {"tidak", "operator", "belum"}:
+            return _step_kepuasan(phone_number, "Tidak", session)
+        return handler(phone_number, message_text, session)
 
 
 def _reply(phone_number, text, buttons=None):

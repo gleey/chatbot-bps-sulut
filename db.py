@@ -67,6 +67,11 @@ def get_conn():
     db_dir = os.path.dirname(DB_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
+    try:
+        descriptor = os.open(DB_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(descriptor)
+    except FileExistsError:
+        pass
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -86,6 +91,8 @@ def init_db():
             legacy = bool(existing) and "conversation_id" not in {r["name"] for r in existing}
             if legacy:
                 backup_path = f"{DB_PATH}.pre-v2-{time.time_ns()}.bak"
+                descriptor = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                os.close(descriptor)
                 with sqlite3.connect(backup_path) as backup:
                     conn.backup(backup)
                 os.chmod(backup_path, 0o600)

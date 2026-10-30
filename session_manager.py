@@ -131,7 +131,7 @@ class SessionManager:
             conn.close()
 
     def active_bot(self, phone_number):
-        """Reset sesi sepenuhnya (step + history), bukan hanya step."""
+        """Start a new active session; keep previous messages in its closed archive."""
         self.reset(phone_number)
         return self.get_or_create(phone_number)
 
@@ -187,6 +187,15 @@ class SessionManager:
         finally:
             conn.close()
 
+    def mark_complaint(self, phone_number):
+        conn = get_conn()
+        try:
+            conn.execute("UPDATE conversations SET kind='pengaduan' WHERE id="
+                         "(SELECT conversation_id FROM sessions WHERE phone=?)", (phone_number,))
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_expired_sessions(self):
         """Ambil daftar nomor telepon yang sesinya sudah kedaluwarsa (> 5 menit) dan belum di-reset."""
         conn = get_conn()
@@ -200,7 +209,7 @@ class SessionManager:
             conn.close()
 
     def cleanup_expired(self):
-        """Hapus semua sesi yang sudah melewati batas waktu dari database."""
+        """Archive expired bot conversations; operator sessions require explicit closure."""
         for phone in self.get_expired_sessions():
             with phone_lock(phone):
                 if phone in self.get_expired_sessions():
