@@ -421,10 +421,16 @@ def create_app():
 def run_server():
     from waitress import serve
     start_background_workers()
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "5000"))
+    operator_host = "localhost" if host in ("0.0.0.0", "::") else host
+    if ":" in operator_host:
+        operator_host = f"[{operator_host}]"
     logger.info("WhatsApp webhook ready (provider=%s)", WHATSAPP_PROVIDER)
+    logger.info("Dashboard Operator tersedia di: http://%s:%d/operator", operator_host, port)
     # Jalankan dengan Waitress (WSGI server produksi) jika tersedia, fallback ke app.run()
     # Waitress is a required dependency; a missing install must not start a development server in production.
-    serve(app, host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", "5000")), threads=4)
+    serve(app, host=host, port=port, threads=4)
 
 
 if __name__ == "__main__":
