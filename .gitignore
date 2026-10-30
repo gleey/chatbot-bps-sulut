@@ -218,6 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Chatbot BPS
+docs/
 logs/
 chatbot.db
 *.db-wal

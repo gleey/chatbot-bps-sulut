@@ -1,73 +1,95 @@
 # Chatbot BPS Sulawesi Utara
 
-Prototipe layanan konsultasi statistik dan pengaduan WhatsApp untuk BPS Sulawesi
-Utara. Backend menggunakan Python, Flask, Waitress, Gemini, dan SQLite. Dashboard
-operator menggunakan HTML, Bootstrap, dan JavaScript.
+Chatbot WhatsApp untuk konsultasi statistik dan pengaduan layanan BPS Provinsi
+Sulawesi Utara. Aplikasi menggabungkan klasifikasi kebutuhan menggunakan Google
+Gemini, pencarian sumber resmi BPS, serta dashboard operator untuk penanganan
+pengaduan.
 
-## Perilaku yang tersedia
+## Fitur
 
-- Menu Konsultasi dan Pengaduan; tombol native pada Meta, pilihan teks pada Fonnte.
-- Gemini mengklasifikasi kebutuhan data. Angka jawaban berasal dari cuplikan rilis
-  resmi BPS yang diperoleh aplikasi; angka dan URL hasil model tidak ditampilkan.
-- Pencarian BRS/tabel pada halaman API yang dikembalikan, dengan cache default
-  **24 jam**. Hasil bukan jaminan data terbaru di seluruh katalog BPS.
-- URL unduhan/halaman yang dikembalikan API harus memakai HTTPS dan domain BPS.
-  Jika URL individual tidak tersedia, tautan ditandai sebagai **katalog subjek**.
-- Fallback aturan tanpa Gemini; tanpa internet, navigasi katalog tetap tersedia,
-  tetapi retrieval angka BPS dapat gagal. “Offline” berarti tanpa Gemini.
-- Failover key/model berurutan, cooldown default 300 detik, maksimal empat
-  percobaan dan anggaran request Gemini delapan detik. Ini bukan pool terdistribusi.
-- Pengaduan dialihkan pada Senin–Jumat, 08.00–15.30 WITA. Hari libur nasional
-  belum dimodelkan. Di luar jam kerja, bot memberikan kontak resmi.
-- Login operator dengan password hash, session 30 menit, CSRF, cookie HttpOnly,
-  SameSite=Strict, dan Secure untuk HTTPS. Tidak ada akun/password bawaan.
-- Reset/timeout bot lima menit **mengarsipkan** percakapan. Sesi operator aktif
-  tidak ditutup oleh timeout biasa. Pengguna tetap bisa mengetik `Selesai`.
-- Inbox SQLite menyimpan pesan sebelum ACK webhook. Deduplikasi memakai ID Meta
-  atau `inboxid` Fonnte; satu worker memproses antrean secara berurutan.
-- Kegagalan kirim tidak dilaporkan sebagai sukses. HTTP sukses dari provider
-  menunjukkan permintaan diterima, bukan bukti pesan dibaca/delivered.
+- **Konsultasi statistik** — pencarian Berita Resmi Statistik dan tabel BPS,
+  dilengkapi sumber serta tanggal jika tersedia.
+- **AI dan fallback aturan** — klasifikasi kebutuhan melalui Gemini dengan
+  failover API key/model serta mode tanpa AI.
+- **Dua provider WhatsApp** — Meta Cloud API dengan tombol interaktif dan Fonnte
+  dengan pilihan berbasis teks.
+- **Pengaduan dan operator** — alih kelola pada Senin–Jumat, 08.00–15.30 WITA,
+  dashboard percakapan, balasan manual, dan penutupan sesi.
+- **Keamanan** — verifikasi HMAC webhook Meta, autentikasi operator, CSRF,
+  validasi input, rate limiting, dan deduplikasi pesan masuk.
+- **Persistensi** — sesi dan arsip percakapan di SQLite, timeout bot lima menit,
+  serta cache BPS dengan TTL default 24 jam.
 
-Flask/Waitress dan HTTP ke API eksternal bersifat **sinkron**, dengan background
-thread. Sistem tidak menggunakan asynchronous I/O. Target tiga detik end-to-end
-belum dibuktikan pada jaringan/provider nyata.
+## Teknologi
+
+| Komponen | Teknologi |
+| --- | --- |
+| Backend | Python, Flask, Waitress |
+| Klasifikasi AI | Google Gemini API |
+| WhatsApp | Meta WhatsApp Cloud API / Fonnte |
+| Sumber statistik | BPS Web API dan katalog BPS Sulawesi Utara |
+| Penyimpanan | SQLite dengan WAL |
+| Dashboard | HTML, Bootstrap 5, JavaScript |
+
+## Prasyarat
+
+- Python **3.10+** dan pip.
+- Akun serta credential provider WhatsApp untuk menjalankan server webhook.
+- API key Gemini untuk mode AI dan BPS Web API untuk retrieval data; keduanya
+  opsional jika hanya memakai fallback aturan dan navigasi katalog.
+- Endpoint HTTPS yang dapat dijangkau provider untuk menerima webhook nyata.
 
 ## Instalasi
-
-Python **3.10+** diperlukan oleh dependency yang dipin. Audit dijalankan pada
-Python 3.14.8. Paket dan hasil tes tercatat di [laporan pengujian](docs/TESTING_REPORT.md).
 
 ```bash
 git clone https://github.com/gleey/chatbot-bps-sulut.git
 cd chatbot-bps-sulut
 python -m venv .venv
+```
+
+Aktifkan virtual environment:
+
+```bash
+# Linux / macOS
 source .venv/bin/activate
+
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+```
+
+Pasang dependency dan siapkan konfigurasi:
+
+```bash
 python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Bekerjalah pada branch terpisah. Jangan melacak `.env`, database, backup, atau log
-operasional dalam Git.
+Pada PowerShell, gunakan `Copy-Item .env.example .env`. Jika `.env` sudah ada,
+perbarui isinya tanpa menimpa konfigurasi lama.
 
 ## Konfigurasi
 
-Isi `.env` sesuai provider yang digunakan. File contoh memuat seluruh opsi.
+Edit `.env` sesuai kebutuhan. Semua opsi tersedia dalam [.env.example](.env.example).
 
-| Variabel | Kebutuhan |
+| Variabel | Keterangan |
 | --- | --- |
 | `WHATSAPP_PROVIDER` | `meta` atau `fonnte` |
-| `META_ACCESS_TOKEN`, `META_PHONE_NUMBER_ID`, `META_VERIFY_TOKEN`, `META_APP_SECRET`, `META_API_VERSION` | Wajib ketika server menggunakan Meta |
-| `FONNTE_TOKEN`, `FONNTE_WEBHOOK_SECRET` | Token keluar dan secret Authorization masuk pada Fonnte; secret kosong memakai token lama untuk kompatibilitas |
-| `OPERATOR_USERNAME`, `OPERATOR_PASSWORD_HASH`, `FLASK_SECRET_KEY` | Wajib untuk membuka dashboard; tanpa ketiganya akses operator ditolak |
-| `GEMINI_API_KEYS` | Opsional, dipisah koma; fallback `GEMINI_API_KEY` tunggal |
-| `GEMINI_MODEL`, `GEMINI_MODEL_FALLBACKS` | Model utama dan fallback; contoh `gemini-3.6-flash` dan `gemini-3.5-flash-lite` |
-| `GEMINI_TIMEOUT_SECONDS`, `GEMINI_MAX_ATTEMPTS` | Default 8 detik / 4 percobaan; SDK retry internal dinonaktifkan |
-| `ROTATOR_COOLDOWN_SECONDS` | Default 300; offline akibat kegagalan dicoba kembali setelah cooldown |
-| `BPS_API_KEY`, `BPS_CACHE_TTL` | Key opsional untuk retrieval; TTL default 86400 detik |
-| `BPS_SERVER_ACTION_ID` | Opsional; kosong menonaktifkan fallback website yang rapuh |
-| `DATABASE_PATH`, `SESSION_TIMEOUT` | File SQLite persisten dan timeout bot, default `chatbot.db` / 300 detik |
+| `META_ACCESS_TOKEN`, `META_PHONE_NUMBER_ID` | Credential pengiriman Meta |
+| `META_VERIFY_TOKEN`, `META_APP_SECRET`, `META_API_VERSION` | Verifikasi webhook dan versi Graph API Meta |
+| `FONNTE_TOKEN`, `FONNTE_WEBHOOK_SECRET` | Token pengiriman dan secret autentikasi webhook Fonnte |
+| `GEMINI_API_KEYS` | API key Gemini, dipisah koma; alternatif satu key: `GEMINI_API_KEY` |
+| `GEMINI_MODEL`, `GEMINI_MODEL_FALLBACKS` | Model utama dan model cadangan |
+| `BPS_API_KEY` | API key BPS untuk mengambil rilis dan tabel |
+| `OPERATOR_USERNAME`, `OPERATOR_PASSWORD_HASH` | Identitas login dan hash password operator |
+| `FLASK_SECRET_KEY` | Secret penandatanganan session operator |
+| `DATABASE_PATH` | Lokasi file SQLite; default `chatbot.db` |
+| `SESSION_TIMEOUT`, `BPS_CACHE_TTL` | Timeout bot dan TTL cache dalam detik; default `300` dan `86400` |
 | `APP_ENV`, `COOKIE_SECURE` | Development HTTP lokal: `development` / `false`; production HTTPS: `production` / `true` |
-| `HOST`, `PORT`, `LOG_LEVEL` | Default `127.0.0.1`, `5000`, `INFO` |
+| `HOST`, `PORT` | Alamat server; default `127.0.0.1:5000` |
+
+Isi seluruh credential untuk provider yang dipilih. Server menolak startup jika
+konfigurasi provider belum lengkap. Dashboard memerlukan username, password hash,
+dan secret session; tidak ada akun bawaan.
 
 Buat secret session dan hash password secara lokal:
 
@@ -76,130 +98,151 @@ python -c 'import secrets; print(secrets.token_hex(32))'
 python -c 'from getpass import getpass; from werkzeug.security import generate_password_hash; print(generate_password_hash(getpass("Password operator: ")))'
 ```
 
-Simpan hasil sebagai `FLASK_SECRET_KEY` dan `OPERATOR_PASSWORD_HASH`. Jangan
-menuliskan password plaintext atau secret provider pada JavaScript. Pertahankan
-secret session yang sama saat restart; menggantinya membatalkan semua login.
+Simpan hasilnya sebagai `FLASK_SECRET_KEY` dan `OPERATOR_PASSWORD_HASH`. Jangan
+memasukkan credential ke kode, screenshot, atau commit.
 
-Model contoh diperiksa terhadap [katalog Google](https://ai.google.dev/gemini-api/docs/models)
-pada 30 Oktober 2026. `gemini-3.5-flash` lama sudah ditandai deprecated dalam
-[dokumentasi Google](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash).
-Akses akun, kuota, dan ketersediaan model tetap perlu diuji dengan akun target.
-Graph API versi contoh `v23.0` tercantum pada
-[jadwal versi Meta](https://developers.facebook.com/docs/graph-api/changelog/).
-Jangan menyalin model/version lama tanpa meninjau lifecycle.
+## Menjalankan aplikasi
 
-## Menjalankan
+### Webhook WhatsApp dan dashboard
 
 ```bash
 python wa_webhook.py
 ```
 
-Waitress berjalan dengan satu proses dan empat request thread. Startup memvalidasi
-konfigurasi provider, lalu memulai inbox worker, prewarm, dan pemeriksa timeout.
-Alternatif WSGI dengan factory yang memulai worker:
+Server menggunakan Waitress. Buka `http://127.0.0.1:5000/operator` untuk login
+operator dan `http://127.0.0.1:5000/health` untuk memeriksa database serta status
+worker. Pastikan `worker_running` bernilai `true`.
+
+Alternatif menjalankan melalui WSGI factory:
 
 ```bash
 waitress-serve --host=127.0.0.1 --port=5000 --call wa_webhook:create_app
 ```
 
-Jangan menjalankan beberapa proses/instance pada database yang sama. Lock FSM
-berlaku hanya dalam proses. Impor `wa_webhook:app` saja tidak memulai worker;
-periksa `worker_running` pada `/health` jika memakai launcher lain.
+Gunakan **satu proses aplikasi** untuk database yang sama. Factory `create_app`
+memulai worker inbox, prewarm cache, dan pemeriksa timeout. Mengimpor `app` saja
+tidak memulai worker tersebut.
 
-Buka `http://127.0.0.1:5000/operator`; halaman mengarahkan ke login. Dashboard
-melakukan polling setiap lima detik, bukan WebSocket. HTTP development memerlukan
-`COOKIE_SECURE=false`; browser tidak mengirim cookie Secure melalui HTTP biasa.
-
-Simulasi terminal tanpa provider WhatsApp:
+### Simulasi terminal
 
 ```bash
 python main.py
 ```
 
-Jika Gemini tidak tersedia, pilih mode offline. Perintah terminal: `reset`,
-`info`, `online`, dan `keluar`. `Selesai` mengakhiri sesi pengguna.
+Simulasi ini tidak memerlukan provider WhatsApp. Jika Gemini tidak tersedia,
+pilih mode offline pada menu terminal.
 
-## Webhook dan endpoint
-
-| Endpoint | Perilaku dan akses |
+| Perintah | Fungsi |
 | --- | --- |
-| `GET /webhook` | Challenge Meta dengan verify token nonkosong |
-| `POST /webhook` | Meta: `X-Hub-Signature-256` wajib sesuai raw body dan App Secret. Fonnte: `Authorization` wajib sesuai secret masuk |
-| `GET/POST /operator/login` | Login; POST memerlukan CSRF dari form; maksimal lima percobaan per IP per lima menit |
-| `POST /operator/logout` | Session operator dan CSRF wajib |
-| `GET /operator` | Dashboard setelah login |
-| `GET /api/operator/sessions` | Daftar sesi operator, maksimal 200 pesan terakhir per sesi |
-| `POST /api/operator/send` | Login + CSRF; nomor 8–15 digit, pesan 1–4096 karakter, sesi harus berstatus operator |
-| `POST /api/operator/close` | Login + CSRF; menutup setelah provider menerima pesan penutup; pesan masuk pending menyebabkan HTTP 409 |
-| `POST /operator/selesai` | Alias close dengan autentikasi session dan CSRF yang sama; key development lama tidak berlaku |
-| `GET /health` | Koneksi database, mode Gemini, status worker; tidak melakukan panggilan provider |
-| `GET /stats` | Statistik sesi; login operator wajib |
+| `reset` | Memulai sesi baru dan mempertahankan arsip lama |
+| `info` | Menampilkan informasi sesi |
+| `online` | Mencoba kembali koneksi Gemini |
+| `Selesai` | Mengakhiri percakapan |
+| `keluar` | Menutup simulasi |
 
-CSRF API dikirim dalam `X-CSRF-Token` menggunakan token session dari HTML.
-Webhook dibatasi 256 KiB, maksimal 100 pesan per batch, dan 1000 event pending.
-Pesan teks melebihi 4096 karakter dipotong. Deduplikasi diperiksa sebelum throttle
-per nomor dua detik. HTTP 429/503 tidak menerima batch; provider dapat mencoba
-kembali. Status notification Meta tidak diperlakukan sebagai pesan pengguna.
+## Alur penggunaan
 
-**Fonnte:** [payload resmi](https://docs.fonnte.com/webhook-reply-message/)
-menyertakan `inboxid`. Dokumentasi yang dibaca belum membuktikan header auth masuk
-langsung. Jika akun tidak dapat mengirim header, gunakan relay terkontrol yang
-memverifikasi sumber terlebih dahulu dan menambahkan Authorization. Jangan
-membuka endpoint Fonnte tanpa autentikasi. Dukungan live perlu divalidasi.
+1. Pengguna mengirim sapaan melalui WhatsApp.
+2. Bot menampilkan pilihan **Konsultasi** dan **Pengaduan**.
+3. Konsultasi mengarahkan pengguna ke rilis atau tabel resmi BPS, kemudian meminta
+   penilaian **Ya/Tidak** saat hasil pencarian tersedia.
+4. Pengaduan atau jawaban **Tidak** dialihkan ke operator pada jam layanan.
+   Di luar jam layanan, bot memberikan informasi kontak BPS.
+5. Operator membalas melalui dashboard dan menutup sesi setelah selesai.
+   Pengguna juga dapat mengetik **Selesai**.
 
-## Persistensi, migrasi, dan pemulihan
+Dashboard memperbarui daftar percakapan melalui polling setiap lima detik.
+Sesi operator aktif dikecualikan dari timeout bot biasa.
 
-- `sessions`: status aktif; `messages`: pesan bertaut ke `conversation_id`;
-  `conversations`: identitas percakapan, jenis konsultasi/pengaduan, dan penutupan.
-- Reset membersihkan konteks aktif dan mempertahankan transcript arsip. Gemini
-  menerima maksimal 30 pesan konteks; SessionManager mengambil 100 pesan aktif.
-- Migrasi v2 menambah tabel/kolom tanpa menghapus data lama. Database lama mendapat
-  backup SQLite online `*.pre-v2-*.bak` sebelum migrasi. File baru dibatasi mode
-  `0600`; lakukan startup dengan user layanan yang memiliki direktori database.
-- Tidak ada purge arsip otomatis. Kebijakan retensi harus ditetapkan BPS.
-  `SessionManager.purge_archives(retention_days)` hanya untuk pemeliharaan
-  eksplisit setelah backup; menghapus arsip tertutup yang melewati batas, pesan
-  arsip, dan event inbox selesai/gagal yang lebih lama. Sesi aktif tidak dihapus.
-- Deduplikasi event `done` dipertahankan tujuh hari. Event gagal disimpan untuk
-  pemeriksaan. Inbox dan backup juga memuat data pribadi; batasi aksesnya.
-- Event `queued` bertahan setelah restart. Event `processing` yang terputus menjadi
-  `failed/interrupted_unknown`. Tidak ada retry otomatis untuk pengiriman ambigu;
-  cocokkan transcript dan provider sebelum tindakan manual. Ini bukan jaminan
-  exactly-once di antara SQLite dan provider eksternal.
+## Endpoint utama
 
-Backup database menggunakan SQLite backup API saat aplikasi berjalan, atau
-hentikan layanan sebelum menyalin file beserta WAL yang masih aktif. Jangan
-menyalin hanya file `.db` yang sedang ditulis. Untuk rollback skema, hentikan
-layanan dan pulihkan backup yang kompatibel; kode lama dapat menghapus arsip.
+| Metode | Endpoint | Fungsi |
+| --- | --- | --- |
+| GET | `/webhook` | Verifikasi challenge Meta |
+| POST | `/webhook` | Menerima pesan provider yang telah diautentikasi |
+| GET, POST | `/operator/login` | Login operator |
+| POST | `/operator/logout` | Logout operator |
+| GET | `/operator` | Dashboard operator |
+| GET | `/api/operator/sessions` | Daftar percakapan operator |
+| POST | `/api/operator/send` | Mengirim balasan operator |
+| POST | `/api/operator/close` | Menutup dan mengarsipkan sesi |
+| GET | `/health` | Health check database dan status worker |
+| GET | `/stats` | Statistik sesi untuk operator yang sudah login |
 
-## Production
+API operator memerlukan session login. Request perubahan data juga memerlukan
+CSRF token. Webhook Meta memerlukan `X-Hub-Signature-256`; Fonnte memerlukan
+`Authorization` dan ID pesan stabil berupa `inboxid` atau `id`. Jika provider
+Fonnte tidak dapat menyertakan header autentikasi masuk, gunakan relay tepercaya
+yang memverifikasi sumber sebelum meneruskan pesan.
 
-Gunakan HTTPS melalui reverse proxy, `APP_ENV=production`, `COOKIE_SECURE=true`,
-secret session acak minimal 32 karakter, password hash, dan credential provider
-lengkap. Batasi akses langsung port Waitress dan akses direktori `.env`, log,
-database, serta backup. Sesuaikan retensi dan pemantauan event gagal sebelum
-pemakaian operasional. Reverse proxy tidak otomatis dipercaya untuk identitas IP.
+## Struktur proyek
 
-SQLite WAL mencukupi demonstrasi satu proses. Multi-proses/host memerlukan
-koordinasi antrean dan lock terdistribusi; evaluasi PostgreSQL/Redis setelah
-pengukuran beban. Startup/tes tidak membuktikan high availability produksi.
+```text
+chatbot-bps-sulut/
+├── main.py                   # FSM dan simulasi terminal
+├── wa_webhook.py             # Webhook, pengiriman, dan API operator
+├── message_queue.py          # Inbox persisten dan worker pesan
+├── operator_auth.py          # Login, session, dan CSRF
+├── llm_engine.py             # Gemini dan fallback aturan
+├── bps_api.py                # Retrieval dan cache BPS
+├── session_manager.py        # Sesi aktif dan arsip percakapan
+├── db.py                     # Skema dan migrasi SQLite
+├── config.py                 # Konfigurasi dan kategori data
+├── webhook_utils.py          # Validasi dan rate limiting
+├── logging_setup.py          # Logging aplikasi
+├── prewarm.py                # Prewarm cache manual
+├── templates/                # Dashboard dan halaman login
+├── tests/                    # Unit test, integrasi, dan benchmark
+├── .env.example
+├── requirements.txt
+└── LICENSE
+```
 
-## Tes dan bukti audit
+## Pengujian
 
 ```bash
 python -m unittest discover -s tests -v
-python -Wd -m unittest discover -s tests -v
-python -m tests.benchmark > docs/performance_results.json
 ```
 
-Tes menggunakan credential sintetis, direktori sementara lintas platform, Flask
-test client, dan mock API. Koneksi socket jaringan diblokir. Benchmark mengukur
-pemrosesan lokal dan ACK; API dimock tanpa latensi buatan. Tidak ada pengiriman
-WhatsApp nyata. Hasil benchmark tidak membuktikan SLA tiga detik.
+Tes memakai database sementara, credential sintetis, Flask test client, dan mock
+API eksternal. Koneksi jaringan diblokir sehingga tes tidak memerlukan API key
+asli atau mengirim pesan WhatsApp.
 
-- [Audit dan status fitur](docs/PROJECT_AUDIT.md)
-- [File perubahan dan alasan teknis](docs/IMPLEMENTATION_REPORT.md)
-- [Penyesuaian laporan magang](docs/REPORT_ALIGNMENT.md)
-- [Hasil pengujian dan performa](docs/TESTING_REPORT.md)
-- [Changelog](docs/CHANGELOG.md)
-- [Panduan demonstrasi](docs/DEMO_GUIDE.md)
+Benchmark pemrosesan lokal:
+
+```bash
+python -m tests.benchmark
+```
+
+Benchmark menggunakan mock API dan tidak membuktikan waktu respons WhatsApp
+end-to-end. Uji integrasi dengan akun provider dilakukan terpisah.
+
+## Deployment dan batasan
+
+- Gunakan HTTPS, `APP_ENV=production`, `COOKIE_SECURE=true`, secret session acak
+  minimal 32 karakter, dan credential provider yang lengkap untuk production.
+- Backend memakai I/O sinkron dengan background thread. Lock sesi berlaku dalam
+  satu proses; deployment multi-proses memerlukan koordinasi tambahan.
+- Angka jawaban berasal dari hasil retrieval resmi. Cache default 24 jam dan
+  pencarian terbatas pada halaman API yang diperoleh; hasil tidak menjamin data
+  terbaru dari seluruh katalog. Tautan katalog diberi label jika URL individual
+  tidak tersedia.
+- Mode offline berarti tanpa Gemini. Retrieval angka BPS tetap memerlukan
+  koneksi internet dan API key.
+- Reset mengarsipkan percakapan. Database lama mendapat backup sebelum migrasi;
+  tetapkan kebijakan retensi dan backup untuk database, inbox, serta arsip.
+- Event dengan pengiriman gagal atau ambigu membutuhkan pemeriksaan sebelum
+  diulang. Respons sukses provider menunjukkan permintaan diterima, bukan bukti
+  pesan telah dibaca atau diterima pengguna.
+- Hari libur nasional belum dimodelkan. Target respons tiga detik dan integrasi
+  provider live tetap membutuhkan pengukuran pada lingkungan tujuan.
+
+## Kontribusi
+
+Buat branch kerja, lakukan perubahan sesuai cakupan, lalu jalankan tes sebelum
+membuka pull request. Sertakan ringkasan perubahan dan hasil verifikasi. Laporkan
+bug atau usulan melalui [GitHub Issues](https://github.com/gleey/chatbot-bps-sulut/issues).
+
+## Lisensi
+
+Proyek ini menggunakan [MIT License](LICENSE).
