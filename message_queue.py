@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 
+import config
 from db import get_conn, init_db
 from webhook_utils import phone_lock, RATE_LIMIT_SECONDS
 
@@ -74,6 +75,14 @@ def process_next(handle, send):
     status, error = "failed", "processing_failed"
     try:
         with phone_lock(row["phone"]):
+            preview = row["text"]
+            for secret in [*config.GEMINI_API_KEYS, config.GEMINI_API_KEY, config.META_ACCESS_TOKEN,
+                           config.META_APP_SECRET, config.META_VERIFY_TOKEN, config.FONNTE_TOKEN,
+                           config.FONNTE_WEBHOOK_SECRET, config.BPS_API_KEY, config.FLASK_SECRET_KEY,
+                           config.OPERATOR_PASSWORD_HASH]:
+                if secret:
+                    preview = preview.replace(secret, "[REDACTED]")
+            logger.info("Pesan masuk dari [%s]: %r", row["phone"], preview[:100])
             reply = handle(row["phone"], row["text"])
             conn = get_conn()
             try:
@@ -81,9 +90,14 @@ def process_next(handle, send):
                 conn.commit()
             finally:
                 conn.close()
-            if reply is None or send(row["phone"], reply):
+            if reply is None:
+                logger.info("Diteruskan ke operator: %s", row["phone"])
+                status, error = "done", None
+            elif send(row["phone"], reply):
+                logger.info("Balasan diterima provider untuk %s", row["phone"])
                 status, error = "done", None
             else:
+                logger.warning("Gagal mengirim balasan ke %s; periksa provider sebelum mengulang", row["phone"])
                 error = "delivery_failed_or_unknown"
     except Exception as exc:
         logger.error("Inbox processing failed (%s)", type(exc).__name__)

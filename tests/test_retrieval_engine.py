@@ -122,6 +122,13 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(options.retry_options.attempts, 1)
             client.return_value.close.assert_called_once()
 
+    def test_old_sdk_reports_dependency_error_before_connecting(self):
+        with patch.object(engine, "types") as types, patch("llm_engine.genai.Client") as client:
+            del types.HttpOptions
+            with self.assertRaisesRegex(RuntimeError, "SDK Gemini terlalu lama"):
+                engine._call_gemini([], "synthetic")
+            client.assert_not_called()
+
     def test_retries_are_bounded_and_keys_keep_cooldown(self):
         with patch("llm_engine.genai.Client") as client, patch.object(engine, "GEMINI_MAX_ATTEMPTS", 1):
             client.return_value.models.generate_content.side_effect = errors.ClientError(429, {"error": {"message": "quota"}})

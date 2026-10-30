@@ -124,6 +124,47 @@ class InboxTests(unittest.TestCase):
             results = list(executor.map(lambda _: message_queue.enqueue([("id1", PHONE, "hi")]), range(20)))
         self.assertEqual(sum(results), 1)
 
+    def test_worker_logs_incoming_message_once_and_provider_acceptance(self):
+        text = "Halo,\nsaya ingin konsultasi"
+        message_queue.enqueue([("id1", PHONE, text)])
+        handle = Mock(return_value={"message": "reply"})
+        with self.assertLogs("message_queue", level="INFO") as logs:
+            self.assertTrue(message_queue.process_next(handle, Mock(return_value=True)))
+            self.assertFalse(message_queue.process_next(handle, Mock(return_value=True)))
+        incoming = [line for line in logs.output if "Pesan masuk dari" in line]
+        self.assertEqual(len(incoming), 1)
+        self.assertIn(PHONE, incoming[0])
+        self.assertIn("Halo,\\nsaya ingin konsultasi", incoming[0])
+        self.assertNotIn("\n", incoming[0])
+        self.assertTrue(any("Balasan diterima provider" in line for line in logs.output))
+        handle.assert_called_once_with(PHONE, text)
+
+    def test_worker_log_redacts_configured_secret_before_truncating(self):
+        secret = "synthetic-secret-that-must-not-appear"
+        text = "x" * 90 + secret
+        message_queue.enqueue([("id1", PHONE, text)])
+        with patch.object(message_queue.config, "META_APP_SECRET", secret), self.assertLogs("message_queue", level="INFO") as logs:
+            message_queue.process_next(Mock(return_value=None), Mock())
+        incoming = next(line for line in logs.output if "Pesan masuk dari" in line)
+        self.assertNotIn("synthetic", incoming)
+        self.assertIn("[REDACTED]", incoming)
+
+    def test_worker_logs_handoff_without_sending_reply(self):
+        message_queue.enqueue([("id1", PHONE, "Keluhan demo")])
+        send = Mock()
+        with self.assertLogs("message_queue", level="INFO") as logs:
+            message_queue.process_next(Mock(return_value=None), send)
+        send.assert_not_called()
+        self.assertTrue(any("Diteruskan ke operator" in line for line in logs.output))
+        self.assertFalse(any("Balasan diterima provider" in line for line in logs.output))
+
+    def test_worker_logs_send_failure_without_success_claim(self):
+        message_queue.enqueue([("id1", PHONE, "Halo")])
+        with self.assertLogs("message_queue", level="INFO") as logs:
+            message_queue.process_next(Mock(return_value={"message": "reply"}), Mock(return_value=False))
+        self.assertTrue(any("Gagal mengirim balasan" in line for line in logs.output))
+        self.assertFalse(any("Balasan diterima provider" in line for line in logs.output))
+
     def test_failed_delivery_not_automatically_replayed(self):
         message_queue.enqueue([("id1", PHONE, "hi")])
         handle, send = Mock(return_value={"message": "reply"}), Mock(return_value=False)

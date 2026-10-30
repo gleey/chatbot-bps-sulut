@@ -122,6 +122,8 @@ def _call_gemini(contents, system_instruction, temperature=0.7):
     Returns: response object dari Gemini
     Raises: RuntimeError jika semua kombinasi gagal
     """
+    if not hasattr(types, "HttpOptions") or not hasattr(types, "HttpRetryOptions"):
+        raise RuntimeError("SDK Gemini terlalu lama. Jalankan: py -m pip install -r requirements.txt")
     last_error = "Tidak ada API key atau model yang tersedia."
     deadline = time.monotonic() + GEMINI_TIMEOUT_SECONDS
     attempts = 0
