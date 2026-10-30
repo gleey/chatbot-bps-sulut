@@ -15,6 +15,9 @@ _FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
 
 def setup_logging():
     root = logging.getLogger()
+    # HTTP debug logs may include credentials embedded in BPS request URLs.
+    for name in ("urllib3", "httpx", "httpcore", "google.genai", "requests"):
+        logging.getLogger(name).setLevel(logging.WARNING)
     
     # Guard against duplicate handlers on reload
     if root.handlers:

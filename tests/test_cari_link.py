@@ -4,6 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests import support  # noqa: F401; isolate environment before application imports
 from main import cari_link_otomatis
 
 

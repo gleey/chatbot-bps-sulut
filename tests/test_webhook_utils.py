@@ -5,6 +5,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests import support  # noqa: F401; isolate environment before application imports
 from webhook_utils import validate_message, check_rate_limit, _last_msg_ts
 
 

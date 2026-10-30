@@ -6,9 +6,9 @@ import unittest
 # Gunakan DB terpisah untuk testing
 os.environ.setdefault("TESTING", "1")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests import support  # noqa: F401; isolate environment before application imports
 
 import db as database
-database.DB_PATH = "/tmp/opencode/test_chatbot_%d.db" % os.getpid()
 database._initialized = False
 database.init_db()
 

@@ -6,9 +6,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests import support  # noqa: F401; isolate environment before application imports
 
 import db as database
-database.DB_PATH = "/tmp/opencode/test_bps_api_%d.db" % os.getpid()
 database._initialized = False
 database.init_db()
 

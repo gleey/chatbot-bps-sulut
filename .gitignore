@@ -220,6 +220,13 @@ __marimo__/
 # Chatbot BPS
 logs/
 chatbot.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.db
+*.pre-v2-*.bak
+.env.*
+!.env.example
 
 # Graphify
 graphify-out/

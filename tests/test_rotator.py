@@ -5,6 +5,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests import support  # noqa: F401; isolate environment before application imports
 
 from llm_engine import _KeyRotator, _ModelRotator
 
@@ -109,7 +110,7 @@ class TestRotatorIntegration(unittest.TestCase):
         llm_engine._key_rotator.failed.clear()
         llm_engine._model_rotator.failed.clear()
 
-        error_429 = genai_errors.ClientError("429 RESOURCE_EXHAUSTED", response=MagicMock(status=429))
+        error_429 = genai_errors.ClientError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})
         success_response = MagicMock()
         success_response.text = '{"intent": "cari_data", "balasan": "ok"}'
 
@@ -144,7 +145,7 @@ class TestRotatorIntegration(unittest.TestCase):
         llm_engine._key_rotator.failed.clear()
         llm_engine._model_rotator.failed.clear()
 
-        error_404 = genai_errors.ClientError("404 NOT_FOUND", response=MagicMock(status=404))
+        error_404 = genai_errors.ClientError(404, {"error": {"message": "missing", "status": "NOT_FOUND"}})
         success_response = MagicMock()
         success_response.text = '{"intent": "cari_data", "balasan": "ok"}'
 
@@ -178,7 +179,7 @@ class TestRotatorIntegration(unittest.TestCase):
         llm_engine._key_rotator.failed.clear()
         llm_engine._model_rotator.failed.clear()
 
-        error_429 = genai_errors.ClientError("429 RESOURCE_EXHAUSTED", response=MagicMock(status=429))
+        error_429 = genai_errors.ClientError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})
 
         with patch("llm_engine.genai.Client") as MockClient:
             client_instance = MockClient.return_value
