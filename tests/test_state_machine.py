@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+from contextlib import closing
 from unittest.mock import patch
 
 # Setup test DB
@@ -127,7 +128,7 @@ class TestStateMachine(unittest.TestCase):
     def test_expired_session_returns_menu(self):
         import time
         session_mgr.set_step(self.phone, "tanya_kepuasan")
-        with database.get_conn() as conn:
+        with closing(database.get_conn()) as conn, conn:
             conn.execute("UPDATE sessions SET last_active=?", (time.time() - 1000,))
         handle_incoming_message(self.phone, "Ya")
         self.assertEqual(session_mgr.get_or_create(self.phone)["step"], "pilih_layanan")

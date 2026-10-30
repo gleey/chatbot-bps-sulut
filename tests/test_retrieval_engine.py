@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import unittest
+from contextlib import closing
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -25,7 +26,7 @@ class RetrievalTests(unittest.TestCase):
         first = bps_api._request_bps("list/model/statictable/domain/7100")
         self.assertEqual(bps_api._request_bps("list/model/statictable/domain/7100"), first)
         self.assertEqual(get.call_count, 1)
-        with db.get_conn() as conn:
+        with closing(db.get_conn()) as conn, conn:
             conn.execute("UPDATE bps_cache SET ts=?", (time.time() - 90000,))
         bps_api._request_bps("list/model/statictable/domain/7100")
         self.assertEqual(get.call_count, 2)

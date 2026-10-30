@@ -254,11 +254,11 @@ def _process_message(sender, message_text):
 
     clean_text, error = validate_message(message_text)
     if error:
-        logger.warning("Pesan invalid dari %s: %s", sender, error)
+        logger.warning("Pesan masuk tidak valid")
         return
 
     if not check_rate_limit(sender):
-        logger.info("Rate limited: %s", sender)
+        logger.info("Pesan masuk dibatasi rate limit")
         return
 
     logger.info("Pesan masuk tervalidasi")

@@ -7,6 +7,7 @@ import sqlite3
 import os
 import threading
 import time
+from contextlib import closing
 
 import config  # Load configuration before resolving DATABASE_PATH.
 
@@ -93,7 +94,7 @@ def init_db():
                 backup_path = f"{DB_PATH}.pre-v2-{time.time_ns()}.bak"
                 descriptor = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 os.close(descriptor)
-                with sqlite3.connect(backup_path) as backup:
+                with closing(sqlite3.connect(backup_path)) as backup:
                     conn.backup(backup)
                 os.chmod(backup_path, 0o600)
             conn.executescript(_CREATE_SQL)

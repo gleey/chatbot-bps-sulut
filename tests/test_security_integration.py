@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import unittest
+from contextlib import closing
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -258,7 +259,7 @@ class WebIntegration(unittest.TestCase):
         sent = Mock(return_value=True)
 
         def incoming(text, event_id):
-            with db.get_conn() as conn:
+            with closing(db.get_conn()) as conn, conn:
                 conn.execute("UPDATE webhook_inbox SET created_at=created_at-3")
             body = payload([{"id": event_id, "from": PHONE, "type": "text", "text": {"body": text}}])
             self.assertEqual(self.signed_post(body).status_code, 200)

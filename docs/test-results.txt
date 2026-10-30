@@ -1,0 +1,224 @@
+test_cache_expiration (test_bps_api.TestBpsApi.test_cache_expiration) ... ok
+test_cache_set_and_get (test_bps_api.TestBpsApi.test_cache_set_and_get) ... ok
+test_cari_data_bps_no_match (test_bps_api.TestBpsApi.test_cari_data_bps_no_match) ... [2026-10-30 10:16:30,305] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/page/1
+ok
+test_cari_data_bps_success (test_bps_api.TestBpsApi.test_cari_data_bps_success) ... [2026-10-30 10:16:30,307] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/subcsa/520/page/1
+ok
+test_cari_tabel_terbaru_bps (test_bps_api.TestBpsApi.test_cari_tabel_terbaru_bps) ... ok
+test_clean_html (test_bps_api.TestBpsApi.test_clean_html) ... ok
+test_prewarm_cache (test_bps_api.TestBpsApi.test_prewarm_cache) ... [2026-10-30 10:16:30,311] [INFO] [bps_api] Memulai pre-warming BPS API cache (Sulut 7100)...
+[2026-10-30 10:16:30,311] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/page/1
+[2026-10-30 10:16:30,312] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/subcsa/520/page/1
+[2026-10-30 10:16:30,312] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/subcsa/531/page/1
+[2026-10-30 10:16:30,313] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/sub/3/page/1
+[2026-10-30 10:16:30,313] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/sub/23/page/1
+[2026-10-30 10:16:30,314] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/subcsa/561/page/1
+[2026-10-30 10:16:30,314] [INFO] [bps_api] BPS API HTTP request: list/model/pressrelease/domain/7100/sub/8/page/1
+[2026-10-30 10:16:30,315] [INFO] [bps_api] Pre-warming selesai: 7/7 endpoint ter-cache
+ok
+test_alias_ekspor (test_cari_link.TestCariLink.test_alias_ekspor) ... ok
+test_alias_inflasi (test_cari_link.TestCariLink.test_alias_inflasi) ... ok
+test_alias_pdrb (test_cari_link.TestCariLink.test_alias_pdrb) ... ok
+test_case_insensitive (test_cari_link.TestCariLink.test_case_insensitive) ... ok
+test_empty_string (test_cari_link.TestCariLink.test_empty_string) ... ok
+test_exact_match_alias (test_cari_link.TestCariLink.test_exact_match_alias) ... ok
+test_exact_match_full (test_cari_link.TestCariLink.test_exact_match_full) ... ok
+test_fallback_homepage (test_cari_link.TestCariLink.test_fallback_homepage) ... ok
+test_fuzzy_match (test_cari_link.TestCariLink.test_fuzzy_match) ... ok
+test_fuzzy_match_pariwisata (test_cari_link.TestCariLink.test_fuzzy_match_pariwisata) ... ok
+test_returns_kategori_name (test_cari_link.TestCariLink.test_returns_kategori_name) ... ok
+test_substring_match (test_cari_link.TestCariLink.test_substring_match) ... ok
+test_empty_model_fallbacks_and_legacy_single_key (test_config.ConfigTests.test_empty_model_fallbacks_and_legacy_single_key) ... ok
+test_invalid_provider_database_and_numeric_values (test_config.ConfigTests.test_invalid_provider_database_and_numeric_values) ... ok
+test_missing_optional_environment_imports (test_config.ConfigTests.test_missing_optional_environment_imports) ... ok
+test_production_requires_secure_cookies_and_auth (test_config.ConfigTests.test_production_requires_secure_cookies_and_auth) ... ok
+test_startup_missing_secret_error_names_only (test_config.ConfigTests.test_startup_missing_secret_error_names_only) ... ok
+test_batch_acceptance_is_atomic_on_rate_limit (test_persistence_reliability.InboxTests.test_batch_acceptance_is_atomic_on_rate_limit) ... ok
+test_duplicate_concurrent_acceptance (test_persistence_reliability.InboxTests.test_duplicate_concurrent_acceptance) ... ok
+test_failed_delivery_not_automatically_replayed (test_persistence_reliability.InboxTests.test_failed_delivery_not_automatically_replayed) ... ok
+test_pending_survives_reinitialization (test_persistence_reliability.InboxTests.test_pending_survives_reinitialization) ... ok
+test_processing_exception_is_isolated (test_persistence_reliability.InboxTests.test_processing_exception_is_isolated) ... [2026-10-30 10:16:30,721] [ERROR] [message_queue] Inbox processing failed (ValueError)
+ok
+test_worker_start_idempotent_and_crash_state_preserved (test_persistence_reliability.InboxTests.test_worker_start_idempotent_and_crash_state_preserved) ... ok
+test_clear_tujuan (test_persistence_reliability.PersistenceTests.test_clear_tujuan) ... ok
+test_expired_bot_archived_operator_not_expired (test_persistence_reliability.PersistenceTests.test_expired_bot_archived_operator_not_expired) ... ok
+test_legacy_migration_backs_up_without_losing_messages (test_persistence_reliability.PersistenceTests.test_legacy_migration_backs_up_without_losing_messages) ... ok
+test_new_phone_race_does_not_duplicate_active_conversation (test_persistence_reliability.PersistenceTests.test_new_phone_race_does_not_duplicate_active_conversation) ... ok
+test_reset_preserves_archive_and_isolates_new_history (test_persistence_reliability.PersistenceTests.test_reset_preserves_archive_and_isolates_new_history) ... ok
+test_restart_keeps_operator_and_history (test_persistence_reliability.PersistenceTests.test_restart_keeps_operator_and_history) ... ok
+test_retention_only_purges_eligible_closed_archives (test_persistence_reliability.PersistenceTests.test_retention_only_purges_eligible_closed_archives) ... ok
+test_same_phone_fsm_calls_serialized (test_persistence_reliability.PersistenceTests.test_same_phone_fsm_calls_serialized) ... [2026-10-30 10:16:30,762] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,763] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,766] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,769] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,773] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,776] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,779] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,782] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,784] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,787] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,789] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,791] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,794] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,797] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,799] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,802] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,805] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,807] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,810] [INFO] [main] Pesan diteruskan ke operator
+[2026-10-30 10:16:30,812] [INFO] [main] Pesan diteruskan ke operator
+ok
+test_connection_error_stops_and_does_not_leak_credentials (test_retrieval_engine.EngineTests.test_connection_error_stops_and_does_not_leak_credentials) ... [2026-10-30 10:16:30,814] [WARNING] [llm_engine] Koneksi Gemini gagal (OSError)
+ok
+test_context_roles_filtered_and_history_bounded (test_retrieval_engine.EngineTests.test_context_roles_filtered_and_history_bounded) ... ok
+test_invalid_json_and_wrong_shapes_use_rules (test_retrieval_engine.EngineTests.test_invalid_json_and_wrong_shapes_use_rules) ... ok
+test_offline_recovers_after_cooldown (test_retrieval_engine.EngineTests.test_offline_recovers_after_cooldown) ... ok
+test_request_timeout_and_retry_budget_configured (test_retrieval_engine.EngineTests.test_request_timeout_and_retry_budget_configured) ... ok
+test_retries_are_bounded_and_keys_keep_cooldown (test_retrieval_engine.EngineTests.test_retries_are_bounded_and_keys_keep_cooldown) ... [2026-10-30 10:16:30,820] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (1/2 aktif)
+ok
+test_server_error_tries_another_model (test_retrieval_engine.EngineTests.test_server_error_tries_another_model) ... [2026-10-30 10:16:30,822] [WARNING] [llm_engine] Rotator: model 'model-a' ditandai gagal
+[2026-10-30 10:16:30,822] [INFO] [llm_engine] Rotator: berhasil dengan model='model-b', key #1
+ok
+test_bps_cache_hit_avoids_http_and_expiry_refetches (test_retrieval_engine.RetrievalTests.test_bps_cache_hit_avoids_http_and_expiry_refetches) ... [2026-10-30 10:16:30,824] [INFO] [bps_api] BPS API HTTP request: list/model/statictable/domain/7100
+[2026-10-30 10:16:30,826] [INFO] [bps_api] BPS API cache HIT: list/model/statictable/domain/7100
+[2026-10-30 10:16:30,826] [INFO] [bps_api] BPS API HTTP request: list/model/statictable/domain/7100
+ok
+test_catalog_is_labelled_when_individual_url_missing (test_retrieval_engine.RetrievalTests.test_catalog_is_labelled_when_individual_url_missing) ... ok
+test_failed_and_malformed_bps_responses_not_cached (test_retrieval_engine.RetrievalTests.test_failed_and_malformed_bps_responses_not_cached) ... [2026-10-30 10:16:30,829] [INFO] [bps_api] BPS API HTTP request: list/model/statictable/domain/7100
+[2026-10-30 10:16:30,829] [WARNING] [bps_api] BPS API response tidak valid
+[2026-10-30 10:16:30,830] [INFO] [bps_api] BPS API HTTP request: list/model/statictable/domain/7100
+[2026-10-30 10:16:30,830] [WARNING] [bps_api] BPS API response tidak valid
+[2026-10-30 10:16:30,830] [INFO] [bps_api] BPS API HTTP request: list/model/statictable/domain/7100
+[2026-10-30 10:16:30,830] [WARNING] [bps_api] BPS API response tidak valid
+ok
+test_generated_numbers_and_urls_never_displayed (test_retrieval_engine.RetrievalTests.test_generated_numbers_and_urls_never_displayed) ... ok
+test_official_tables_precede_server_action_and_rank_returned_page (test_retrieval_engine.RetrievalTests.test_official_tables_precede_server_action_and_rank_returned_page) ... ok
+test_official_urls_reject_spoofing_and_credentials (test_retrieval_engine.RetrievalTests.test_official_urls_reject_spoofing_and_credentials) ... ok
+test_server_action_failure_and_invalid_items_fall_back_safely (test_retrieval_engine.RetrievalTests.test_server_action_failure_and_invalid_items_fall_back_safely) ... [2026-10-30 10:16:30,836] [WARNING] [bps_api] BPS Server Action gagal (Timeout)
+ok
+test_server_action_uses_only_returned_official_urls (test_retrieval_engine.RetrievalTests.test_server_action_uses_only_returned_official_urls) ... ok
+test_table_year_and_keyword_must_match (test_retrieval_engine.RetrievalTests.test_table_year_and_keyword_must_match) ... ok
+test_cooldown_resets_failed_keys (test_rotator.TestKeyRotator.test_cooldown_resets_failed_keys) ... [2026-10-30 10:16:30,840] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (2/3 aktif)
+ok
+test_empty_keys (test_rotator.TestKeyRotator.test_empty_keys) ... ok
+test_has_available_false_when_all_failed (test_rotator.TestKeyRotator.test_has_available_false_when_all_failed) ... [2026-10-30 10:16:31,940] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (2/3 aktif)
+[2026-10-30 10:16:31,940] [WARNING] [llm_engine] Rotator: key #2 ditandai gagal (1/3 aktif)
+[2026-10-30 10:16:31,940] [WARNING] [llm_engine] Rotator: key #3 ditandai gagal (0/3 aktif)
+ok
+test_has_available_true (test_rotator.TestKeyRotator.test_has_available_true) ... ok
+test_initial_all_available (test_rotator.TestKeyRotator.test_initial_all_available) ... ok
+test_mark_failed_removes_from_available (test_rotator.TestKeyRotator.test_mark_failed_removes_from_available) ... [2026-10-30 10:16:31,941] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (2/3 aktif)
+ok
+test_single_key_failure (test_rotator.TestKeyRotator.test_single_key_failure) ... [2026-10-30 10:16:31,941] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (0/1 aktif)
+ok
+test_all_models_failed (test_rotator.TestModelRotator.test_all_models_failed) ... [2026-10-30 10:16:31,941] [WARNING] [llm_engine] Rotator: model 'gemini-2.5-flash' ditandai gagal
+[2026-10-30 10:16:31,941] [WARNING] [llm_engine] Rotator: model 'gemini-2.0-flash' ditandai gagal
+[2026-10-30 10:16:31,941] [WARNING] [llm_engine] Rotator: model 'gemini-1.5-flash' ditandai gagal
+ok
+test_cooldown_resets (test_rotator.TestModelRotator.test_cooldown_resets) ... [2026-10-30 10:16:31,941] [WARNING] [llm_engine] Rotator: model 'gemini-2.0-flash' ditandai gagal
+ok
+test_empty_models (test_rotator.TestModelRotator.test_empty_models) ... ok
+test_has_available_true (test_rotator.TestModelRotator.test_has_available_true) ... ok
+test_initial_all_available (test_rotator.TestModelRotator.test_initial_all_available) ... ok
+test_mark_failed_removes_from_available (test_rotator.TestModelRotator.test_mark_failed_removes_from_available) ... [2026-10-30 10:16:33,042] [WARNING] [llm_engine] Rotator: model 'gemini-2.5-flash' ditandai gagal
+ok
+test_404_rotates_to_next_model (test_rotator.TestRotatorIntegration.test_404_rotates_to_next_model)
+Model[0] kena 404, sistem pindah ke model[1]. ... [2026-10-30 10:16:33,044] [WARNING] [llm_engine] Rotator: model 'test-model-a' ditandai gagal
+[2026-10-30 10:16:33,045] [INFO] [llm_engine] Rotator: berhasil dengan model='test-model-b', key #1
+ok
+test_429_rotates_to_next_key (test_rotator.TestRotatorIntegration.test_429_rotates_to_next_key)
+Key[0] kena 429, sistem coba key[1] dan berhasil. ... [2026-10-30 10:16:33,048] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (1/2 aktif)
+[2026-10-30 10:16:33,048] [INFO] [llm_engine] Rotator: berhasil dengan model='test-model-a', key #2
+ok
+test_all_fail_falls_to_offline (test_rotator.TestRotatorIntegration.test_all_fail_falls_to_offline)
+Semua key × model gagal → fallback offline. ... [2026-10-30 10:16:33,050] [WARNING] [llm_engine] Rotator: key #1 ditandai gagal (1/2 aktif)
+[2026-10-30 10:16:33,051] [WARNING] [llm_engine] Rotator: key #2 ditandai gagal (0/2 aktif)
+[2026-10-30 10:16:33,051] [WARNING] [llm_engine] Semua key & model habis: Gemini HTTP 429. Beralih ke mode offline.
+ok
+test_long_reply_chunks_and_does_not_hide_failure (test_security_integration.ProviderTests.test_long_reply_chunks_and_does_not_hide_failure) ... ok
+test_meta_and_fonnte_response_validation (test_security_integration.ProviderTests.test_meta_and_fonnte_response_validation) ... ok
+test_provider_timeout_and_invalid_json (test_security_integration.ProviderTests.test_provider_timeout_and_invalid_json) ... [2026-10-30 10:16:33,054] [WARNING] [wa_webhook] Pengiriman Meta gagal (Timeout)
+[2026-10-30 10:16:33,054] [WARNING] [wa_webhook] Pengiriman Fonnte gagal (Timeout)
+[2026-10-30 10:16:33,054] [WARNING] [wa_webhook] Pengiriman Meta gagal (ValueError)
+[2026-10-30 10:16:33,054] [WARNING] [wa_webhook] Pengiriman Fonnte gagal (ValueError)
+ok
+test_all_batch_changes_and_messages_processed (test_security_integration.WebIntegration.test_all_batch_changes_and_messages_processed) ... ok
+test_authenticated_wrong_identity_and_expiry_rejected (test_security_integration.WebIntegration.test_authenticated_wrong_identity_and_expiry_rejected) ... ok
+test_close_refuses_pending_incoming_messages (test_security_integration.WebIntegration.test_close_refuses_pending_incoming_messages) ... ok
+test_csrf_forgery_blocks_every_mutation (test_security_integration.WebIntegration.test_csrf_forgery_blocks_every_mutation) ... ok
+test_dashboard_headers_and_safe_rendering (test_security_integration.WebIntegration.test_dashboard_headers_and_safe_rendering) ... ok
+test_duplicate_delivery_runs_fsm_once (test_security_integration.WebIntegration.test_duplicate_delivery_runs_fsm_once) ... ok
+test_fonnte_json_form_and_separate_auth (test_security_integration.WebIntegration.test_fonnte_json_form_and_separate_auth) ... ok
+test_fonnte_missing_secret_never_authenticates (test_security_integration.WebIntegration.test_fonnte_missing_secret_never_authenticates) ... ok
+test_full_webhook_consultation_and_complaint_roundtrip (test_security_integration.WebIntegration.test_full_webhook_consultation_and_complaint_roundtrip) ... [2026-10-30 10:16:33,129] [INFO] [main] Pesan diteruskan ke operator
+ok
+test_get_empty_secret_rejected (test_security_integration.WebIntegration.test_get_empty_secret_rejected) ... ok
+test_get_verification (test_security_integration.WebIntegration.test_get_verification) ... ok
+test_health_checks_database (test_security_integration.WebIntegration.test_health_checks_database) ... ok
+test_login_requires_csrf_and_correct_password (test_security_integration.WebIntegration.test_login_requires_csrf_and_correct_password) ... ok
+test_login_throttled (test_security_integration.WebIntegration.test_login_throttled) ... ok
+test_logout_revokes_browser_session (test_security_integration.WebIntegration.test_logout_revokes_browser_session) ... ok
+test_malformed_payloads_rejected_without_exception_details (test_security_integration.WebIntegration.test_malformed_payloads_rejected_without_exception_details) ... ok
+test_missing_operator_credentials_fail_closed (test_security_integration.WebIntegration.test_missing_operator_credentials_fail_closed) ... ok
+test_operator_input_validation_and_active_session_required (test_security_integration.WebIntegration.test_operator_input_validation_and_active_session_required) ... ok
+test_operator_send_close_and_archive (test_security_integration.WebIntegration.test_operator_send_close_and_archive) ... ok
+test_payload_size_limit (test_security_integration.WebIntegration.test_payload_size_limit) ... ok
+test_queue_capacity (test_security_integration.WebIntegration.test_queue_capacity) ... ok
+test_rate_limit_returns_retryable_error (test_security_integration.WebIntegration.test_rate_limit_returns_retryable_error) ... ok
+test_secure_cookie_configuration (test_security_integration.WebIntegration.test_secure_cookie_configuration) ... ok
+test_send_failure_not_recorded_as_success_and_close_keeps_session (test_security_integration.WebIntegration.test_send_failure_not_recorded_as_success_and_close_keeps_session) ... ok
+test_signature_accepts_exact_raw_bytes (test_security_integration.WebIntegration.test_signature_accepts_exact_raw_bytes) ... ok
+test_signature_rejects_invalid_missing_and_modified_payload (test_security_integration.WebIntegration.test_signature_rejects_invalid_missing_and_modified_payload) ... ok
+test_status_notifications_do_not_enter_fsm (test_security_integration.WebIntegration.test_status_notifications_do_not_enter_fsm) ... ok
+test_unauthenticated_operator_routes (test_security_integration.WebIntegration.test_unauthenticated_operator_routes) ... ok
+test_wsgi_factory_initializes_workers_once (test_security_integration.WebIntegration.test_wsgi_factory_initializes_workers_once) ... ok
+test_active_bot_full_reset (test_session_manager.TestSessionManager.test_active_bot_full_reset) ... ok
+test_count_active (test_session_manager.TestSessionManager.test_count_active) ... ok
+test_create_session (test_session_manager.TestSessionManager.test_create_session) ... ok
+test_get_existing_session (test_session_manager.TestSessionManager.test_get_existing_session) ... ok
+test_history (test_session_manager.TestSessionManager.test_history) ... ok
+test_info_summary (test_session_manager.TestSessionManager.test_info_summary) ... ok
+test_is_expired_false (test_session_manager.TestSessionManager.test_is_expired_false) ... ok
+test_reset (test_session_manager.TestSessionManager.test_reset) ... ok
+test_set_step (test_session_manager.TestSessionManager.test_set_step) ... ok
+test_update_info (test_session_manager.TestSessionManager.test_update_info) ... ok
+test_awal_greeting (test_state_machine.TestStateMachine.test_awal_greeting)
+Step awal → tanya pilih layanan. ... ok
+test_expired_session_returns_menu (test_state_machine.TestStateMachine.test_expired_session_returns_menu) ... ok
+test_invalid_layanan (test_state_machine.TestStateMachine.test_invalid_layanan)
+Input tidak valid → pesan error. ... ok
+test_invalid_step_resets (test_state_machine.TestStateMachine.test_invalid_step_resets)
+Step tidak dikenal → reset otomatis. ... [2026-10-30 10:16:33,208] [WARNING] [main] Step sesi tidak dikenal; reset diperlukan
+ok
+test_pengaduan_flow_jam_kerja (test_state_machine.TestStateMachine.test_pengaduan_flow_jam_kerja)
+Pilih pengaduan saat jam kerja → diteruskan ke operator. ... ok
+test_pengaduan_flow_luar_jam_kerja (test_state_machine.TestStateMachine.test_pengaduan_flow_luar_jam_kerja)
+Pilih pengaduan di luar jam kerja → pesan permohonan maaf & kontak. ... ok
+test_pilih_konsultasi_offline (test_state_machine.TestStateMachine.test_pilih_konsultasi_offline)
+Pilih konsultasi saat offline → rule_based_tanya_data. ... ok
+test_rule_based_data_search (test_state_machine.TestStateMachine.test_rule_based_data_search)
+Rule-based: cari data kependudukan → dapat link. ... ok
+test_selesai_in_every_state_archives_and_resets (test_state_machine.TestStateMachine.test_selesai_in_every_state_archives_and_resets) ... ok
+test_tidak_puas_jam_kerja (test_state_machine.TestStateMachine.test_tidak_puas_jam_kerja)
+Tidak puas saat jam kerja → diteruskan ke operator. ... ok
+test_tidak_puas_luar_jam_kerja (test_state_machine.TestStateMachine.test_tidak_puas_luar_jam_kerja)
+Tidak puas di luar jam kerja → permohonan maaf & kontak. ... ok
+test_working_hours_wita_boundaries_and_weekend (test_state_machine.TestStateMachine.test_working_hours_wita_boundaries_and_weekend) ... ok
+test_ya_resumes_consultation_and_invalid_answer_stays (test_state_machine.TestStateMachine.test_ya_resumes_consultation_and_invalid_answer_stays) ... ok
+test_after_delay_allowed (test_webhook_utils.TestRateLimit.test_after_delay_allowed) ... ok
+test_different_phones_independent (test_webhook_utils.TestRateLimit.test_different_phones_independent) ... ok
+test_first_message_allowed (test_webhook_utils.TestRateLimit.test_first_message_allowed) ... ok
+test_rapid_message_blocked (test_webhook_utils.TestRateLimit.test_rapid_message_blocked) ... ok
+test_empty_string (test_webhook_utils.TestValidateMessage.test_empty_string) ... ok
+test_non_string (test_webhook_utils.TestValidateMessage.test_non_string) ... ok
+test_none (test_webhook_utils.TestValidateMessage.test_none) ... ok
+test_strips_whitespace (test_webhook_utils.TestValidateMessage.test_strips_whitespace) ... ok
+test_truncate_long_message (test_webhook_utils.TestValidateMessage.test_truncate_long_message) ... [2026-10-30 10:16:33,264] [WARNING] [webhook_utils] Pesan dipotong ke 4096 karakter
+ok
+test_valid_message (test_webhook_utils.TestValidateMessage.test_valid_message) ... ok
+test_whitespace_only (test_webhook_utils.TestValidateMessage.test_whitespace_only) ... ok
+
+----------------------------------------------------------------------
+Ran 136 tests in 2.962s
+
+OK
