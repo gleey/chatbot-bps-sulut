@@ -43,7 +43,7 @@ META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID", "")
 META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "")
 META_APP_SECRET = os.getenv("META_APP_SECRET", "")
-META_API_VERSION = os.getenv("META_API_VERSION", "")
+META_API_VERSION = os.getenv("META_API_VERSION", "").strip() or "v23.0"
 
 # Fonnte API Configuration
 FONNTE_TOKEN = os.getenv("FONNTE_TOKEN", "")
@@ -58,15 +58,17 @@ SESSION_TIMEOUT = positive_int("SESSION_TIMEOUT", 300)
 OPERATOR_USERNAME = os.getenv("OPERATOR_USERNAME", "")
 OPERATOR_PASSWORD_HASH = os.getenv("OPERATOR_PASSWORD_HASH", "")
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "")
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
 APP_ENV = os.getenv("APP_ENV", "development")
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", str(APP_ENV == "production")).lower() == "true"
 
 
 def validate_startup():
     """Fail before serving when the selected provider or production auth is incomplete."""
     required = (["META_ACCESS_TOKEN", "META_PHONE_NUMBER_ID", "META_VERIFY_TOKEN",
-                 "META_APP_SECRET", "META_API_VERSION"] if WHATSAPP_PROVIDER == "meta"
+                 "META_API_VERSION"] if WHATSAPP_PROVIDER == "meta"
                 else ["FONNTE_TOKEN", "FONNTE_WEBHOOK_SECRET"])
+    if APP_ENV == "production" and WHATSAPP_PROVIDER == "meta":
+        required.append("META_APP_SECRET")
     missing = [name for name in required if not globals().get(name)]
     if APP_ENV == "production":
         missing += [name for name in ["OPERATOR_USERNAME", "OPERATOR_PASSWORD_HASH",

@@ -69,13 +69,17 @@ perbarui isinya tanpa menimpa konfigurasi lama.
 
 ## Konfigurasi
 
-Edit `.env` sesuai kebutuhan. Semua opsi tersedia dalam [.env.example](.env.example).
+Format `.env` lama tetap didukung. Contoh ringkas tersedia dalam
+[.env.example](.env.example); parameter tambahan di bawah bersifat opsional kecuali
+dibutuhkan oleh fitur yang digunakan.
 
 | Variabel | Keterangan |
 | --- | --- |
 | `WHATSAPP_PROVIDER` | `meta` atau `fonnte` |
 | `META_ACCESS_TOKEN`, `META_PHONE_NUMBER_ID` | Credential pengiriman Meta |
-| `META_VERIFY_TOKEN`, `META_APP_SECRET`, `META_API_VERSION` | Verifikasi webhook dan versi Graph API Meta |
+| `META_VERIFY_TOKEN` | Token challenge webhook Meta |
+| `META_APP_SECRET` | Diperlukan untuk mengaktifkan verifikasi signature dan menerima pesan Meta |
+| `META_API_VERSION` | Opsional; default `v23.0` |
 | `FONNTE_TOKEN`, `FONNTE_WEBHOOK_SECRET` | Token pengiriman dan secret autentikasi webhook Fonnte |
 | `GEMINI_API_KEYS` | API key Gemini, dipisah koma; alternatif satu key: `GEMINI_API_KEY` |
 | `GEMINI_MODEL`, `GEMINI_MODEL_FALLBACKS` | Model utama dan model cadangan |
@@ -87,9 +91,20 @@ Edit `.env` sesuai kebutuhan. Semua opsi tersedia dalam [.env.example](.env.exam
 | `APP_ENV`, `COOKIE_SECURE` | Development HTTP lokal: `development` / `false`; production HTTPS: `production` / `true` |
 | `HOST`, `PORT` | Alamat server; default `127.0.0.1:5000` |
 
-Isi seluruh credential untuk provider yang dipilih. Server menolak startup jika
-konfigurasi provider belum lengkap. Dashboard memerlukan username, password hash,
-dan secret session; tidak ada akun bawaan.
+Isi credential provider seperti pada `.env` lama. Versi API, lokasi database,
+timeout, dan opsi internal memiliki default sehingga tidak perlu ditambahkan
+hanya untuk memulai server lokal. Nilai `.env` yang sudah ada tetap digunakan.
+
+Khusus Meta, App Secret tidak dapat diturunkan dari access token atau verify token.
+Tambahkan `META_APP_SECRET` dari dashboard Meta untuk menerima pesan bertanda
+tangan. Jika belum diisi, server development tetap berjalan dengan peringatan;
+POST webhook mengembalikan HTTP 503 dan tidak memproses pesan. Production tetap
+mewajibkan secret tersebut.
+
+Login dashboard adalah fitur terpisah yang memerlukan username, password hash,
+dan secret session; tidak ada akun bawaan. Pengaturan ini tidak menghalangi
+startup server development. Cookie lokal memakai HTTP secara default; cookie
+production memakai Secure secara default.
 
 Buat secret session dan hash password secara lokal:
 

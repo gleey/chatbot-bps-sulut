@@ -86,7 +86,9 @@ class WebIntegration(unittest.TestCase):
             with self.subTest(signature=signature):
                 self.assertEqual(self.signed_post(raw=body, signature=signature).status_code, 403)
         with patch.object(web, "META_APP_SECRET", ""):
-            self.assertEqual(self.signed_post(raw=raw).status_code, 403)
+            response = self.signed_post(raw=raw)
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("META_APP_SECRET", response.json["message"])
 
     def test_duplicate_delivery_runs_fsm_once(self):
         self.assertEqual(self.signed_post().json["accepted"], 1)

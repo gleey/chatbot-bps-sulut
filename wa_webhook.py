@@ -215,9 +215,11 @@ def webhook():
             return jsonify(status="error", message="Unauthorized"), 401
     else:
         # 2. Meta payload: verify the exact bytes received, before parsing JSON.
+        if not META_APP_SECRET:
+            return jsonify(status="error", message="Webhook Meta belum dikonfigurasi: META_APP_SECRET diperlukan"), 503
         signature = request.headers.get("X-Hub-Signature-256", "")
         expected = "sha256=" + hmac.new(META_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
-        if not META_APP_SECRET or not hmac.compare_digest(signature.encode(), expected.encode()):
+        if not hmac.compare_digest(signature.encode(), expected.encode()):
             return jsonify(status="error", message="Forbidden"), 403
     try:
         data = request.get_json(silent=True) if request.is_json else request.form.to_dict()
@@ -400,6 +402,8 @@ def start_background_workers():
         if _background_started:
             return
         config.validate_startup()
+        if WHATSAPP_PROVIDER == "meta" and not META_APP_SECRET:
+            logger.warning("Server berjalan dengan .env lama. Webhook Meta belum aktif: isi META_APP_SECRET untuk memverifikasi signature.")
         message_queue.start_worker(handle_incoming_message, _dispatch_reply)
         # Jalankan background pre-warming cache BPS (tiap 6 jam)
         start_prewarm_thread(interval_hours=6)
