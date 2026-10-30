@@ -16,6 +16,11 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+
+class _GeminiRequestError(RuntimeError):
+    """A rejected request must not disable Gemini for unrelated conversations."""
+
+
 _offline_mode = False
 _offline_since = 0
 
@@ -130,7 +135,7 @@ def _call_gemini(contents, system_instruction, temperature=0.7):
     for model_idx, model_name in _model_rotator.get_available_models():
         for key_idx, api_key in _key_rotator.get_available_keys():
             remaining = deadline - time.monotonic()
-            if attempts >= GEMINI_MAX_ATTEMPTS or remaining <= 0:
+            if attempts >= GEMINI_MAX_ATTEMPTS or remaining < 10:
                 raise RuntimeError("Batas percobaan atau waktu layanan Gemini tercapai")
             attempts += 1
             client = None
@@ -149,7 +154,15 @@ def _call_gemini(contents, system_instruction, temperature=0.7):
                 return response
             except genai_errors.APIError as error:
                 code = error.code
-                last_error = f"Gemini HTTP {code}"
+                detail = str(getattr(error, "message", "Permintaan ditolak"))
+                for api_key in GEMINI_API_KEYS:
+                    detail = detail.replace(api_key, "[REDACTED]")
+                detail = " ".join(detail.split())[:500]
+                last_error = f"Gemini HTTP {code}: {detail}"
+                logger.warning("Request Gemini gagal (model=%s, key #%d): %s",
+                               model_name, key_idx + 1, last_error)
+                if code in (400, 422):
+                    raise _GeminiRequestError(last_error) from None
                 if code in (404, 503):
                     _model_rotator.mark_failed(model_idx)
                     break  # pindah model, key di-reset
@@ -233,8 +246,11 @@ def analisis_pesan(history, info_terkumpul=None):
 
     try:
         response = _call_gemini(contents, SYSTEM_PROMPT, temperature=0.7)
+    except _GeminiRequestError as e:
+        logger.warning("Request Gemini ditolak; memakai aturan untuk pesan ini: %s", e)
+        return _fallback_offline(pesan_baru)
     except RuntimeError as e:
-        logger.warning("Semua key & model habis: %s. Beralih ke mode offline.", e)
+        logger.warning("Layanan Gemini tidak tersedia: %s. Beralih ke mode offline.", e)
         set_offline_mode(True)
         return _fallback_offline(pesan_baru)
 

@@ -30,7 +30,8 @@ GEMINI_MODELS = list(dict.fromkeys([MODEL_NAME] + _fallbacks))
 
 # Cooldown rotator — berapa detik sebelum key/model yang gagal dicoba lagi
 ROTATOR_COOLDOWN = positive_int("ROTATOR_COOLDOWN_SECONDS", 300)
-GEMINI_TIMEOUT_SECONDS = positive_int("GEMINI_TIMEOUT_SECONDS", 8)
+# Leave headroom for the API's minimum ten-second request deadline.
+GEMINI_TIMEOUT_SECONDS = max(15, positive_int("GEMINI_TIMEOUT_SECONDS", 15))
 GEMINI_MAX_ATTEMPTS = positive_int("GEMINI_MAX_ATTEMPTS", 4)
 
 # WhatsApp Provider Configuration ("meta" atau "fonnte")

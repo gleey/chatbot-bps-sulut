@@ -33,6 +33,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith("1\n"))
 
+    def test_gemini_deadline_uses_safe_default_and_clamps_legacy_short_timeout(self):
+        script = "import config; assert config.GEMINI_TIMEOUT_SECONDS >= 15"
+        for environment in [{}, {"GEMINI_TIMEOUT_SECONDS": "8"}]:
+            result = self.run_config(script=script, **environment)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_startup_missing_secret_error_names_only(self):
         with patch.multiple(config, META_APP_SECRET="", META_ACCESS_TOKEN="sensitive-value",
                             APP_ENV="production", COOKIE_SECURE=True, FLASK_SECRET_KEY="x" * 32,

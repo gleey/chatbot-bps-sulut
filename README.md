@@ -95,6 +95,10 @@ Isi credential provider seperti pada `.env` lama. Versi API, lokasi database,
 timeout, dan opsi internal memiliki default sehingga tidak perlu ditambahkan
 hanya untuk memulai server lokal. Nilai `.env` yang sudah ada tetap digunakan.
 
+Anggaran request Gemini default 15 detik. Nilai `GEMINI_TIMEOUT_SECONDS` yang lebih
+pendek dinaikkan ke 15 detik untuk memenuhi minimum deadline API sepuluh detik;
+fallback berhenti jika sisa waktu tidak cukup untuk request berikutnya.
+
 Khusus Meta, App Secret tidak dapat diturunkan dari access token atau verify token.
 Tambahkan `META_APP_SECRET` dari dashboard Meta untuk menerima pesan bertanda
 tangan. Jika belum diisi, server development tetap berjalan dengan peringatan;

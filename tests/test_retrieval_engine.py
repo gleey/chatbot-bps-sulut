@@ -119,6 +119,7 @@ class EngineTests(unittest.TestCase):
             engine._call_gemini([], "synthetic")
             options = client.call_args.kwargs["http_options"]
             self.assertLessEqual(options.timeout, engine.GEMINI_TIMEOUT_SECONDS * 1000)
+            self.assertGreaterEqual(options.timeout, 10000)
             self.assertEqual(options.retry_options.attempts, 1)
             client.return_value.close.assert_called_once()
 
@@ -141,6 +142,43 @@ class EngineTests(unittest.TestCase):
             client.return_value.models.generate_content.side_effect = [errors.ServerError(503, {"error": {"message": "unavailable"}}), Mock(text="{}")]
             engine._call_gemini([], "synthetic")
             self.assertEqual(client.return_value.models.generate_content.call_args.kwargs["model"], "model-b")
+
+    def test_fallback_stops_before_sending_a_deadline_shorter_than_ten_seconds(self):
+        with patch("llm_engine.genai.Client") as client, patch.object(engine, "GEMINI_TIMEOUT_SECONDS", 15), patch("llm_engine.time.monotonic", side_effect=[0, 0, 6]):
+            client.return_value.models.generate_content.side_effect = errors.ClientError(404, {"error": {"message": "missing"}})
+            self.assertRaises(RuntimeError, engine._call_gemini, [], "synthetic")
+            self.assertEqual(client.return_value.models.generate_content.call_count, 1)
+            self.assertEqual(client.call_args.kwargs["http_options"].timeout, 15000)
+
+    def test_rejected_request_keeps_error_detail_without_exposing_key(self):
+        secret = "synthetic-sensitive-api-key"
+        error = errors.ClientError(400, {"error": {"message": f"Invalid argument\nkey={secret}"}})
+        with patch.object(engine, "GEMINI_API_KEYS", [secret]), patch("llm_engine.genai.Client") as client:
+            client.return_value.models.generate_content.side_effect = error
+            with self.assertLogs("llm_engine", level="WARNING") as logs:
+                with self.assertRaises(engine._GeminiRequestError) as caught:
+                    engine._call_gemini([], "synthetic")
+        self.assertIn("Invalid argument", str(caught.exception))
+        self.assertNotIn(secret, str(caught.exception))
+        self.assertNotIn(secret, " ".join(logs.output))
+        self.assertNotIn("\n", str(caught.exception))
+        self.assertIn("model=model-a, key #1", logs.output[0])
+        self.assertEqual(client.return_value.models.generate_content.call_count, 1)
+        self.assertEqual(engine._key_rotator.failed, {})
+        self.assertEqual(engine._model_rotator.failed, {})
+
+    def test_bad_request_does_not_disable_gemini_for_next_message(self):
+        history = [{"role": "user", "parts": [{"text": "data inflasi"}]}]
+        error = errors.ClientError(400, {"error": {"message": "Invalid argument"}})
+        with patch("llm_engine.genai.Client") as client:
+            client.return_value.models.generate_content.side_effect = [
+                error, Mock(text='{"intent":"cari_data","balasan":"valid"}')]
+            with self.assertLogs("llm_engine", level="WARNING") as logs:
+                self.assertEqual(engine.analisis_pesan(history)["intent"], "cari_data")
+            self.assertFalse(engine.is_offline_mode())
+            self.assertFalse(any("Semua key" in line for line in logs.output))
+            self.assertEqual(engine.analisis_pesan(history)["balasan"], "valid")
+            self.assertEqual(client.return_value.models.generate_content.call_count, 2)
 
     def test_connection_error_stops_and_does_not_leak_credentials(self):
         with patch("llm_engine.genai.Client", side_effect=OSError("sensitive-api-key")) as client:
