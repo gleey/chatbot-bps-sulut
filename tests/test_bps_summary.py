@@ -41,8 +41,9 @@ class TableSummaryTests(unittest.TestCase):
     def test_yearbook_preserves_aggregate_group_year_indicator_and_unit(self):
         with patch("bps_api._request_bps", return_value=yearbook()) as request:
             summary = bps_api.ringkas_tabel_bps(table(), "pendidikan")
-        self.assertTrue(summary.startswith("• 2025 — Laki-laki+Perempuan 7-23"))
-        self.assertIn("Persentase Masih Sekolah: 73,34 persen", summary)
+        self.assertIn("Laki-laki dan Perempuan 7-23", summary.splitlines()[0])
+        self.assertIn("Persentase Masih Sekolah", summary)
+        self.assertIn("tercatat sebesar 73,34 persen", summary)
         self.assertNotIn("2026", summary)
         request.assert_called_once_with("view/domain/7100/model/tablestatistic/id/example/lang/ind", year=2025)
 
@@ -54,11 +55,13 @@ class TableSummaryTests(unittest.TestCase):
         payload = yearbook(kolom={name: {"nama_variabel": name} for name in rows[0]["variables"]}, data=rows)
         with patch("bps_api._request_bps", return_value=payload):
             summary = bps_api.ringkas_tabel_bps(table())
-        self.assertIn("zero: 0,00", summary)
-        self.assertIn("flag: 12,50*", summary)
-        self.assertNotIn("missing:", summary)
-        self.assertNotIn("dots:", summary)
-        self.assertNotIn("dash:", summary)
+        self.assertIn("zero untuk kelompok", summary)
+        self.assertIn("0,00", summary)
+        self.assertIn("flag untuk kelompok", summary)
+        self.assertIn("12,50*", summary)
+        self.assertNotIn("missing untuk kelompok", summary)
+        self.assertNotIn("dots untuk kelompok", summary)
+        self.assertNotIn("dash untuk kelompok", summary)
 
     def test_requested_year_is_sent_and_mismatched_response_is_not_used(self):
         with patch("bps_api._request_bps", return_value=yearbook()) as request:
@@ -68,9 +71,11 @@ class TableSummaryTests(unittest.TestCase):
             self.assertIn("2024", bps_api.ringkas_tabel_bps(table(), "pendidikan 2024"))
 
     def test_dynamic_decodes_dimension_keys_without_inventing_a_unit(self):
-        with patch("bps_api._request_bps", return_value=dynamic()):
+        payload = dynamic(var=[{"val": 1781, "label": "APK Perguruan Tinggi Provinsi Sulawesi Utara", "unit": "Tidak Ada Satuan"}])
+        with patch("bps_api._request_bps", return_value=payload):
             summary = bps_api.ringkas_tabel_bps(table("2"))
-        self.assertIn("2025; Provinsi Sulawesi Utara: 33,51", summary)
+        self.assertIn("Pada tahun 2025, APK Perguruan Tinggi Provinsi Sulawesi Utara tercatat sebesar 33,51", summary)
+        self.assertNotIn("untuk Provinsi Sulawesi Utara", summary)
         self.assertNotIn("persen", summary)
         self.assertNotIn("Tidak Ada Satuan", summary)
 
@@ -83,8 +88,8 @@ class TableSummaryTests(unittest.TestCase):
             datacontent={"1192401267": 268766, "1192401268": 216523, "2192401268": 187077})
         with patch("bps_api._request_bps", return_value=payload):
             summary = bps_api.ringkas_tabel_bps(table("2", latest_period=2026))
-        self.assertIn("2026; Agustus; Bongkar: 216.523 Ton", summary)
-        self.assertIn("2026; Agustus; Muat: 187.077 Ton", summary)
+        self.assertIn("Pada Agustus 2026, Bongkar Muat untuk Bongkar tercatat sebesar 216.523 Ton", summary)
+        self.assertIn("Pada Agustus 2026, Bongkar Muat untuk Muat tercatat sebesar 187.077 Ton", summary)
         self.assertNotIn("September", summary)
         self.assertNotIn("Juli", summary)
 
@@ -94,27 +99,27 @@ class TableSummaryTests(unittest.TestCase):
             datacontent={"1178101250": 10, "8178101250": 20})
         with patch("bps_api._request_bps", return_value=payload):
             summary = bps_api.ringkas_tabel_bps(table("2"))
-        self.assertTrue(summary.startswith("• 2025; Agustus: 20"))
+        self.assertTrue(summary.startswith("• Pada Agustus 2025, APK Perguruan Tinggi tercatat sebesar 20"))
 
     def test_month_row_order_does_not_depend_on_response_order(self):
         payload = dynamic(vervar=[{"val": 8, "label": "Agustus"}, {"val": 1, "label": "Januari"}],
                           datacontent={"1178101250": 10, "8178101250": 20})
         with patch("bps_api._request_bps", return_value=payload):
-            self.assertTrue(bps_api.ringkas_tabel_bps(table("2")).startswith("• 2025; Agustus: 20"))
+            self.assertTrue(bps_api.ringkas_tabel_bps(table("2")).startswith("• Pada Agustus 2025, APK Perguruan Tinggi tercatat sebesar 20"))
 
     def test_dynamic_prefers_province_total_and_rejects_wrong_year(self):
         payload = dynamic(vervar=[{"val": 1, "label": "Minahasa"}, {"val": 7100, "label": "Sulawesi Utara"}],
                           datacontent={"1178101250": 10, "7100178101250": 33.51})
         with patch("bps_api._request_bps", return_value=payload):
-            self.assertTrue(bps_api.ringkas_tabel_bps(table("2")).startswith("• 2025; Sulawesi Utara: 33,51"))
+            self.assertTrue(bps_api.ringkas_tabel_bps(table("2")).startswith("• Pada tahun 2025, APK Perguruan Tinggi untuk Sulawesi Utara tercatat sebesar 33,51"))
             self.assertEqual(bps_api.ringkas_tabel_bps(table("2"), "2024"), "")
 
     def test_simple_static_table_keeps_header_year_and_row_label(self):
         payload = {"status": "OK", "data": {"table": "<table><tr><th>Aspek</th><th>2021</th><th>2022</th></tr>"
                    "<tr><td>Kebebasan</td><td>82,92</td><td>83,00</td></tr></table>"}}
         with patch("bps_api._request_bps", return_value=payload):
-            self.assertIn("2022 — Kebebasan: 83,00", bps_api.ringkas_tabel_bps(table("1")))
-            self.assertIn("2021 — Kebebasan: 82,92", bps_api.ringkas_tabel_bps(table("1"), "2021"))
+            self.assertIn("Pada tahun 2022, Kebebasan tercatat sebesar 83,00", bps_api.ringkas_tabel_bps(table("1")))
+            self.assertIn("Pada tahun 2021, Kebebasan tercatat sebesar 82,92", bps_api.ringkas_tabel_bps(table("1"), "2021"))
             self.assertEqual(bps_api.ringkas_tabel_bps(table("1"), "2020"), "")
 
     def test_merged_static_headers_are_not_guessed(self):
@@ -127,7 +132,7 @@ class TableSummaryTests(unittest.TestCase):
         payload = {"status": "OK", "data": {"table": "<table><tr><td colspan='2'>Indeks Demokrasi 2021</td></tr>"
                    "<tr><th>Aspek</th><th>2021</th></tr><tr><td>Kebebasan</td><td>82,92</td></tr></table>"}}
         with patch("bps_api._request_bps", return_value=payload):
-            self.assertIn("2021 — Kebebasan: 82,92", bps_api.ringkas_tabel_bps(table("1")))
+            self.assertIn("Pada tahun 2021, Kebebasan tercatat sebesar 82,92", bps_api.ringkas_tabel_bps(table("1")))
 
     def test_static_counts_that_look_like_years_do_not_replace_period_headers(self):
         payload = {"status": "OK", "data": {"table": "<table><tr><th>Wilayah</th><th>2024</th><th>2025</th></tr>"
@@ -135,8 +140,8 @@ class TableSummaryTests(unittest.TestCase):
                    "<tr><td>Manado</td><td>10</td><td>20</td></tr></table>"}}
         with patch("bps_api._request_bps", return_value=payload):
             summary = bps_api.ringkas_tabel_bps(table("1"))
-        self.assertIn("2025 — Minahasa: 2022", summary)
-        self.assertIn("2025 — Manado: 20", summary)
+        self.assertIn("Pada tahun 2025, Minahasa tercatat sebesar 2022", summary)
+        self.assertIn("Pada tahun 2025, Manado tercatat sebesar 20", summary)
         self.assertNotIn("2022 — Manado", summary)
 
     def test_yearbook_status_code_keeps_estimation_note_and_hides_missing(self):
@@ -185,6 +190,10 @@ class TableSummaryTests(unittest.TestCase):
         self.assertEqual(answer.count("https://"), 2)
         self.assertNotIn("Sumber BPS:", answer)
         self.assertNotIn("belum tersedia", answer)
+        self.assertTrue(answer.startswith("Halo!"))
+        self.assertNotIn("Cuplikan", answer)
+        self.assertNotIn("cache", answer)
+        self.assertNotIn("API", answer)
 
     def test_detail_failure_keeps_links_and_explains_summary_failure(self):
         phone = "6281234567890"
@@ -192,7 +201,8 @@ class TableSummaryTests(unittest.TestCase):
         with patch("main.cari_data_bps", return_value=None), patch("main.cari_tabel_terbaru_bps", return_value=[table()]), \
                 patch("bps_api._request_bps", return_value=None):
             answer = main.handle_incoming_message(phone, "pendidikan")["message"]
-        self.assertIn("Ringkasan angka belum dapat dibaca", answer)
+        self.assertIn("Angka rincinya belum bisa ditampilkan di sini", answer)
+        self.assertNotIn("API", answer)
         self.assertIn(table()["url"], answer)
         self.assertNotIn("0 persen", answer)
 

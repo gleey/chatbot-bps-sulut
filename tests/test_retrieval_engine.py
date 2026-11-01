@@ -225,7 +225,8 @@ class RetrievalTests(unittest.TestCase):
         self.assertNotIn("evil.test", result["message"])
         self.assertIn("1,23 persen", result["message"])
         self.assertIn("2025-01-01", result["message"])
-        self.assertIn("cache maksimal 24 jam", result["message"])
+        self.assertNotIn("cache", result["message"])
+        self.assertNotIn("Cuplikan", result["message"])
         self.assertNotIn(official["link_pdf"], result["message"])
         self.assertEqual(sum(m["role"] == "user" for m in main.session_mgr.get_history(phone)), 1)
 

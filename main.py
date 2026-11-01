@@ -185,31 +185,34 @@ def _step_rule_based_tanya_data(phone, msg, session):
         link_bps = None
 
     session_mgr.update_info(phone, tujuan=msg)
-    balasan = f"Hasil pencarian sumber BPS Sulut untuk *{msg[:200]}*:\n"
+    topik = f" tentang *{kategori_nama}*" if kategori_nama else " yang Anda cari"
+    balasan = f"Halo! Berikut informasi{topik} di Sulawesi Utara dari BPS.\n"
     bps_data = cari_data_bps(msg)
     if bps_data and bps_data.get("found"):
         balasan += f"\n📌 *{bps_data['title']}* ({bps_data['tanggal']}):\n{bps_data['naratif'][:1600]}\n"
-        balasan += "Cuplikan rilis resmi; cache maksimal 24 jam. Periode mengikuti judul rilis.\n"
 
     tabel_terbaru = cari_tabel_terbaru_bps(msg, subject_url=link_bps, limit=2)
     if tabel_terbaru:
-        balasan += "\n📊 *Hasil Tabel Statistik BPS Sulut*:"
+        balasan += "\nBeberapa data yang tersedia:\n"
+        for t in tabel_terbaru:
+            ringkasan = ringkas_tabel_bps(t, msg)
+            if ringkasan:
+                balasan += f"{ringkasan}\n"
+            else:
+                balasan += f"• *{t['title']}*\nAngka rincinya belum bisa ditampilkan di sini. Silakan buka tautannya di bawah.\n"
+        balasan += "\nUntuk melihat data lebih lengkap, silakan buka tabel BPS berikut.\n\n📊 *Tabel Data Statistik BPS Sulut*:"
         for idx, t in enumerate(tabel_terbaru, 1):
             tgl = f" (diperbarui {t['date']})" if t.get("date") else ""
-            ringkasan = ringkas_tabel_bps(t, msg)
-            balasan += f"\n{idx}. *{t['title']}*{tgl} ({t.get('source_type', 'sumber BPS')})"
-            balasan += f"\nRingkasan isi tabel:\n{ringkasan}" if ringkasan else "\nRingkasan angka belum dapat dibaca dari isi tabel melalui API."
+            balasan += f"\n{idx}. *{t['title']}*{tgl}"
             balasan += f"\n🔗 {t['url']}\n"
-        balasan += "Cuplikan sel resmi; periode, kelompok, dan simbol mengikuti tabel BPS. Cache maksimal 24 jam."
-        balasan += "\n\n"
+        balasan += "\n"
     else:
         balasan += (
-            f"\n📊 *Hasil Tabel Statistik BPS Sulut*:\n"
-            f"Tabel individual belum ditemukan. Telusuri katalog resmi berikut:\n"
+            f"\nSaya belum menemukan tabel yang cocok. Anda bisa mencarinya di situs BPS berikut:\n"
             f"🔗 {link_bps or 'https://sulut.bps.go.id/id/statistics-table'}\n\n"
         )
 
-    balasan += "Apakah Anda puas dengan hasil yang dikirimkan?"
+    balasan += "Apakah informasi ini sudah membantu?"
     buttons = [
         {"id": "btn_ya", "title": "Ya"},
         {"id": "btn_tidak", "title": "Tidak"},

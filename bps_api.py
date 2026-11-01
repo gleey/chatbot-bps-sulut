@@ -555,6 +555,7 @@ def _summary_yearbook(detail, table, year):
     facts = []
     for row in _summary_row_order([row for row in rows if isinstance(row, dict)]):
         label = _summary_label(row.get("label_raw") or row.get("label"))
+        label = re.sub(r"(?i)(laki[–-]laki)\s*\+\s*(perempuan)", r"\1 dan \2", label)
         values = row.get("variables")
         if not label or not isinstance(values, dict):
             continue
@@ -576,7 +577,7 @@ def _summary_yearbook(detail, table, year):
             unit = _summary_label(row.get("satuan") or column.get("satuan"))
             if not unit and "persentase" in indicator.casefold():
                 unit = "persen"
-            facts.append(f"{period} — {label}; {indicator}: {value}{' ' + unit if unit else ''}.")
+            facts.append(f"Pada tahun {period}, {indicator} untuk kelompok {label} tercatat sebesar {value}{' ' + unit if unit else ''}.")
             if len(facts) == 2:
                 return facts
     return facts
@@ -607,15 +608,26 @@ def _summary_dynamic(detail, table, year):
         value = _summary_number(content.get(key))
         if not value:
             continue
-        labels = [annual["label"], period["label"], vertical["label"], horizontal["label"]]
-        if len(variables) > 1:
-            labels.append(variable["label"])
-        context = "; ".join(_summary_label(label) for label in labels
-                            if label.casefold() not in {"tahun", "tidak ada", "tidak ada satuan", ""})
+        period_label = _summary_label(period["label"])
+        if period_label.casefold() in {"tahun", "tidak ada", ""}:
+            period_label = ""
+        group = _summary_label(vertical["label"])
+        if not period_label and group.casefold() in months:
+            period_label = group if group.casefold() != "tahunan" else ""
+            group = ""
+        when = f"{period_label} {annual['label']}" if period_label else f"tahun {annual['label']}"
+        subject = _summary_label(variable["label"])
+        if group.casefold() in {"sulawesi utara", "provinsi sulawesi utara"} and group.casefold() in subject.casefold():
+            group = ""
+        if group.casefold() not in {"tidak ada", ""}:
+            subject += f" untuk {group}"
+        category = _summary_label(horizontal["label"])
+        if category.casefold() not in {"tidak ada", "tidak ada satuan", ""}:
+            subject += f" ({category})"
         unit = _summary_label(variable.get("unit"))
         if unit.casefold() == "tidak ada satuan":
             unit = ""
-        facts.append(f"{context}: {value}{' ' + unit if unit else ''}.")
+        facts.append(f"Pada {when}, {subject} tercatat sebesar {value}{' ' + unit if unit else ''}.")
         if len(facts) == 2:
             return facts
     return facts
@@ -680,7 +692,7 @@ def _summary_static(detail, table, year):
                 continue
             value = _summary_number(row[index])
             if value:
-                facts.append(f"{headers[index]} — {row[0]}: {value}.")
+                facts.append(f"Pada tahun {headers[index]}, {row[0]} tercatat sebesar {value}.")
                 break
         if len(facts) == 2:
             break
