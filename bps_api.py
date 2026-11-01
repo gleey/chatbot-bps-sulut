@@ -7,9 +7,13 @@ import hashlib
 import difflib
 import json
 import logging
+import math
 import re
 import threading
 import time
+from html import unescape
+from html.parser import HTMLParser
+from itertools import islice, product
 from urllib.parse import urlencode, urlsplit, parse_qs, quote
 import requests
 
@@ -512,6 +516,197 @@ def _csa_table_url(item, year=None):
     if source == "3" and re.fullmatch(r"[0-9]{4}", str(period)):
         url += "?" + urlencode({"year": period})
     return url
+
+
+def _summary_number(value):
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return ""
+        return format(value, ",").translate(str.maketrans({",": ".", ".": ","}))
+    if isinstance(value, str) and re.fullmatch(r"[-+]?\d+(?:[.,]\d+)*(?:\s*(?:\*{1,3}|[erabc]))?", value.strip()):
+        return value.strip()
+    return ""
+
+
+def _summary_label(value):
+    return _clean_html(unescape(value)) if isinstance(value, str) else ""
+
+
+def _summary_row_order(rows):
+    """Prefer explicit province/total rows, preserving the actual subgroup label."""
+    def priority(pair):
+        index, row = pair
+        label = normalisasi_pencarian(str(row.get("label_raw") or row.get("label") or ""))
+        aggregate = label in {"sulawesi utara", "provinsi sulawesi utara", "jumlah", "total"}
+        combined = "laki laki perempuan" in label
+        return (0 if aggregate else 1 if combined else 2, -index if aggregate or combined else index)
+    return [row for _, row in sorted(enumerate(rows), key=priority)]
+
+
+def _summary_yearbook(detail, table, year):
+    columns, rows = detail.get("kolom"), detail.get("data")
+    period = detail.get("tahun_data")
+    if not isinstance(columns, dict) or not isinstance(rows, list) or not str(period).isdigit():
+        return []
+    if year and str(period) != str(year):
+        return []
+    facts = []
+    for row in _summary_row_order([row for row in rows if isinstance(row, dict)]):
+        label = _summary_label(row.get("label_raw") or row.get("label"))
+        values = row.get("variables")
+        if not label or not isinstance(values, dict):
+            continue
+        for key, column in columns.items():
+            cell = values.get(key)
+            if not isinstance(column, dict) or not isinstance(cell, dict):
+                continue
+            value = _summary_number(cell.get("value"))
+            indicator = _summary_label(column.get("nama_variabel"))
+            if not value or not indicator:
+                continue
+            code = cell.get("value_code")
+            if isinstance(code, str) and code in {"NA", "...", "–"}:
+                continue
+            if isinstance(code, str) and code and not value.endswith(code):
+                notes = detail.get("keterangan_data")
+                note = notes.get(code, code) if isinstance(notes, dict) else code
+                value += f" ({_summary_label(note)})"
+            unit = _summary_label(row.get("satuan") or column.get("satuan"))
+            if not unit and "persentase" in indicator.casefold():
+                unit = "persen"
+            facts.append(f"{period} — {label}; {indicator}: {value}{' ' + unit if unit else ''}.")
+            if len(facts) == 2:
+                return facts
+    return facts
+
+
+def _summary_dynamic(detail, table, year):
+    axes = [detail.get(name) for name in ("tahun", "turtahun", "vervar", "var", "turvar")]
+    content = detail.get("datacontent")
+    if not isinstance(content, dict) or not all(isinstance(axis, list) and axis and all(
+            isinstance(item, dict) and isinstance(item.get("val"), (str, int)) and
+            isinstance(item.get("label"), str) for item in axis) for axis in axes):
+        return []
+    years, periods, verticals, variables, horizontals = axes
+    years = sorted((item for item in years if item["label"].isdigit() and
+                    (not year or item["label"] == str(year))), key=lambda item: int(item["label"]), reverse=True)
+    periods = sorted(periods, key=lambda item: int(item["val"]) if str(item["val"]).isdigit() else -1, reverse=True)
+    verticals = _summary_row_order(verticals)
+    months = ("januari", "februari", "maret", "april", "mei", "juni", "juli", "agustus",
+              "september", "oktober", "november", "desember", "tahunan")
+    if all(item["label"].casefold() in months for item in verticals):
+        verticals = sorted(verticals, key=lambda item: months.index(item["label"].casefold()), reverse=True)
+    horizontals = _summary_row_order(horizontals)
+    facts = []
+    # shortcut: inspect at most 100,000 dimension combinations; use an indexed decoder for larger tables.
+    for annual, period, vertical, variable, horizontal in islice(product(
+            years, periods, verticals, variables, horizontals), 100000):
+        key = "".join(str(item["val"]) for item in (vertical, variable, horizontal, annual, period))
+        value = _summary_number(content.get(key))
+        if not value:
+            continue
+        labels = [annual["label"], period["label"], vertical["label"], horizontal["label"]]
+        if len(variables) > 1:
+            labels.append(variable["label"])
+        context = "; ".join(_summary_label(label) for label in labels
+                            if label.casefold() not in {"tahun", "tidak ada", "tidak ada satuan", ""})
+        unit = _summary_label(variable.get("unit"))
+        if unit.casefold() == "tidak ada satuan":
+            unit = ""
+        facts.append(f"{context}: {value}{' ' + unit if unit else ''}.")
+        if len(facts) == 2:
+            return facts
+    return facts
+
+
+class _SummaryTableParser(HTMLParser):
+    """Read simple static tables; leave merged layouts to the linked original."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows, self.row, self.cell = [], None, None
+        self.merged = False
+        self.row_merged = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self.row = []
+            self.row_merged = False
+        elif tag in {"td", "th"} and self.row is not None:
+            self.cell = []
+            self.merged = self.merged or any(key == "rowspan" and value != "1" for key, value in attrs)
+            self.row_merged = self.row_merged or any(key == "colspan" and value != "1" for key, value in attrs)
+        elif tag == "br" and self.cell is not None:
+            self.cell.append(" ")
+
+    def handle_data(self, data):
+        if self.cell is not None:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag in {"td", "th"} and self.cell is not None and self.row is not None:
+            self.row.append(" ".join("".join(self.cell).split()))
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            if self.row_merged:
+                self.merged = self.merged or len(self.row) > 1
+            else:
+                self.rows.append(self.row)
+            self.row = None
+
+
+def _summary_static(detail, table, year):
+    html = detail.get("table")
+    if not isinstance(html, str):
+        return []
+    parser = _SummaryTableParser()
+    parser.feed(html)
+    # shortcut: merged static-table headers are not inferred; add span-aware parsing when needed.
+    if parser.merged:
+        return []
+    headers, facts = [], []
+    for row in parser.rows:
+        if len(row) < 2 or not row[0]:
+            continue
+        if not headers:
+            if all(re.fullmatch(r"(?:19|20)\d{2}", value) for value in row[1:]):
+                headers = row
+            continue
+        if len(row) != len(headers):
+            continue
+        for index in reversed(range(1, len(row))):
+            if not re.fullmatch(r"(?:19|20)\d{2}", headers[index]) or (year and headers[index] != str(year)):
+                continue
+            value = _summary_number(row[index])
+            if value:
+                facts.append(f"{headers[index]} — {row[0]}: {value}.")
+                break
+        if len(facts) == 2:
+            break
+    return facts
+
+
+def ringkas_tabel_bps(table, keyword=""):
+    """Read up to two official cells with labels; never generate missing figures."""
+    if not isinstance(table, dict) or not isinstance(table.get("title"), str) or not _csa_table_url(table):
+        return ""
+    requested = re.findall(r"\b(?:19|20)\d{2}\b", keyword)
+    year = max(requested) if requested else None
+    params = {"year": year or table["latest_period"]} if year or table.get("latest_period") else {}
+    data = _request_bps(f"view/domain/{DOMAIN_SULUT}/model/tablestatistic/id/{quote(str(table['id']), safe='')}/lang/ind", **params)
+    if not isinstance(data, dict):
+        return ""
+    if str(table["tablesource"]) == "2":
+        detail = data
+    else:
+        detail = data.get("data")
+        if isinstance(detail, list):
+            detail = detail[1] if len(detail) > 1 else None
+    if not isinstance(detail, dict):
+        return ""
+    parser = {"1": _summary_static, "2": _summary_dynamic, "3": _summary_yearbook}[str(table["tablesource"])]
+    return "\n".join("• " + fact for fact in parser(detail, table, year))
 
 
 def _csa_tables(keyword, subject):

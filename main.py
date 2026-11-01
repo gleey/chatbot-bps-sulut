@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from llm_engine import analisis_pesan, test_api_connection, set_offline_mode, is_offline_mode
 from session_manager import SessionManager
 from config import BPS_CATEGORIES
-from bps_api import cari_data_bps, cari_tabel_terbaru_bps, normalisasi_pencarian
+from bps_api import cari_data_bps, cari_tabel_terbaru_bps, normalisasi_pencarian, ringkas_tabel_bps
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +195,12 @@ def _step_rule_based_tanya_data(phone, msg, session):
     if tabel_terbaru:
         balasan += "\n📊 *Hasil Tabel Statistik BPS Sulut*:"
         for idx, t in enumerate(tabel_terbaru, 1):
-            tgl = f" ({t['date']})" if t.get("date") else ""
-            balasan += f"\n{idx}. *{t['title']}*{tgl} ({t.get('source_type', 'sumber BPS')})\n🔗 {t['url']}"
+            tgl = f" (diperbarui {t['date']})" if t.get("date") else ""
+            ringkasan = ringkas_tabel_bps(t, msg)
+            balasan += f"\n{idx}. *{t['title']}*{tgl} ({t.get('source_type', 'sumber BPS')})"
+            balasan += f"\nRingkasan isi tabel:\n{ringkasan}" if ringkasan else "\nRingkasan angka belum dapat dibaca dari isi tabel melalui API."
+            balasan += f"\n🔗 {t['url']}\n"
+        balasan += "Cuplikan sel resmi; periode, kelompok, dan simbol mengikuti tabel BPS. Cache maksimal 24 jam."
         balasan += "\n\n"
     else:
         balasan += (
