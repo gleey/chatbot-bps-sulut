@@ -1,15 +1,16 @@
 """
 BPS Web API client dengan cache SQLite 24 jam dan background pre-warming.
-Mengambil data resmi BPS Sulut (pressrelease, statictable, subject).
+Mengambil data resmi BPS Sulut (pressrelease, tablestatistic, statictable, subject).
 Endpoint: https://webapi.bps.go.id/v1/api
 """
 import hashlib
+import difflib
 import json
 import logging
 import re
 import threading
 import time
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, parse_qs, quote
 import requests
 
 from db import get_conn, init_db
@@ -119,7 +120,7 @@ KEYWORD_SUBJECT_MAP = {
     # Penggunaan Waktu (529)
     "penggunaan waktu": ("subcsa", 529),
 
-    # Makroekonomi & PDRB (530)
+    # Statistik Makroekonomi (530)
     "statistik makroekonomi": ("subcsa", 530),
 
     # Neraca Ekonomi & PDRB (531)
@@ -367,13 +368,42 @@ def _items(data):
     return [item for item in values[1] if isinstance(item, dict) and isinstance(item.get("title"), str)]
 
 
-def _matches(keyword, text):
+def normalisasi_pencarian(text):
+    """Match common indicator abbreviations against official BPS titles."""
+    aliases = {
+        "pdrb": "produk domestik regional bruto", "ipm": "indeks pembangunan manusia",
+        "tpt": "tingkat pengangguran terbuka", "tpak": "tingkat partisipasi angkatan kerja",
+        "apk": "angka partisipasi kasar", "apm": "angka partisipasi murni",
+        "bansos": "bantuan sosial", "kb": "keluarga berencana",
+        "pns": "pegawai negeri sipil", "asn": "aparatur sipil negara",
+        "ikk": "indeks kemahalan konstruksi", "wisman": "wisatawan mancanegara",
+        "tpk": "tingkat penghunian kamar", "ihk": "indeks harga konsumen",
+        "ntp": "nilai tukar petani", "ipg": "indeks pembangunan gender",
+        "idg": "indeks pemberdayaan gender", "idi": "indeks demokrasi indonesia",
+        "kpm": "keluarga penerima manfaat", "pkh": "program keluarga harapan",
+        "kks": "kartu keluarga sejahtera", "asi": "air susu ibu",
+        "perkapita": "per kapita", "pemukiman": "permukiman",
+        "petani": "pertanian", "suhu udara": "suhu", "wisata": "pariwisata",
+    }
+    text = " ".join(re.findall(r"\w+", text.casefold()))
+    for alias, replacement in aliases.items():
+        text = re.sub(r"\b" + re.escape(alias) + r"\b", replacement, text)
+    return text
+
+
+def _search_words(keyword):
     ignored = {"saya", "mau", "ingin", "cari", "butuh", "data", "statistik", "tentang", "mengenai",
                "berapa", "berapakah", "tolong", "bisa", "tampilkan", "jumlah", "di", "dan", "yang",
-               "sulut", "sulawesi", "utara", "bps", "tahun", "terbaru", "untuk", "pada", "adalah"}
-    words = [word for word in re.findall(r"\w+", keyword.lower()) if word not in ignored and len(word) > 2]
-    text = text.lower()
-    return bool(words) and all(word in text for word in words)
+               "sulut", "sulawesi", "utara", "bps", "tahun", "terbaru", "untuk", "pada", "adalah",
+               "terkait", "informasi", "mencari", "minta", "seputar", "lihat", "dong", "ya"}
+    return [word for word in normalisasi_pencarian(keyword).split() if word not in ignored and len(word) > 2]
+
+
+def _matches(keyword, text):
+    words = _search_words(keyword)
+    titles = set(normalisasi_pencarian(text).split())
+    return bool(words) and all(word in titles or (len(word) > 4 and
+        difflib.get_close_matches(word, titles, n=1, cutoff=0.88)) for word in words)
 
 
 def cari_data_bps(keyword: str):
@@ -382,7 +412,8 @@ def cari_data_bps(keyword: str):
 
     1. Cocokkan keyword ke sub/subcsa BPS
     2. Panggil BPS API dengan direct endpoint filter (misal: /subcsa/520/page/1)
-    3. Ekstrak BRS yang cocok + abstraksi naratif berisi angka resmi
+    3. Cari rilis terdahulu melalui filter keyword jika halaman awal tidak cocok
+    4. Ekstrak BRS yang cocok + abstraksi naratif berisi angka resmi
 
     Returns:
         dict: {"found": True, "title": ..., "naratif": ..., "tanggal": ..., "link_pdf": ...}
@@ -410,18 +441,24 @@ def cari_data_bps(keyword: str):
         data = _request_bps(endpoint)
 
     press_releases = _items(data)
+    # Subject filters on the legacy route are ignored; search older matching releases explicitly.
+    if not any(_matches(keyword_clean, f"{item['title']} {item.get('subcsa') or ''}") for item in press_releases):
+        query = " ".join(_search_words(keyword_clean))
+        if query:
+            press_releases = _items(_request_bps(
+                f"list/model/pressrelease/domain/{DOMAIN_SULUT}", keyword=query))
     if not isinstance(press_releases, list) or not press_releases:
         return None
 
     # Filter BRS paling relevan dari list — skor setiap BRS
-    kata_kunci = [k for k in keyword_clean.split() if len(k) > 2]
+    kata_kunci = _search_words(keyword_clean)
     best_brs = None
     best_score = 0
 
     for brs in press_releases:
         title = brs.get("title", "").lower()
         subcat = str(brs.get("subcsa") or "").lower()
-        haystack = f"{title} {subcat}"
+        haystack = normalisasi_pencarian(f"{title} {subcat}")
         if not _matches(keyword_clean, haystack):
             continue
 
@@ -460,21 +497,94 @@ def cari_data_bps(keyword: str):
     }
 
 
-def cari_tabel_terbaru_bps(keyword: str, subject_url: str = None, limit: int = 2):
-    """Search official API first; return download URLs or clearly labelled catalog links.
+def _csa_table_url(item, year=None):
+    """Use the same source/id/title route as the official BPS table catalog."""
+    source = str(item.get("tablesource", ""))
+    value = item.get("id")
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return ""
+    identifier = str(value)
+    if source not in {"1", "2", "3"} or not re.fullmatch(r"[A-Za-z0-9_+=-]{1,256}", identifier):
+        return ""
+    slug = re.sub(r"[^a-zA-Z0-9]", "-", item["title"].lower().replace("%", "-persen"))
+    url = f"https://sulut.bps.go.id/id/statistics-table/{source}/{quote(identifier, safe='=')}/{slug}.html"
+    period = year or item.get("latest_period")
+    if source == "3" and re.fullmatch(r"[0-9]{4}", str(period)):
+        url += "?" + urlencode({"year": period})
+    return url
 
-    Only the returned page is ranked. This is not a guarantee of the newest table
-    across the complete BPS catalog. Website Server Action is an optional fallback.
+
+def _csa_tables(keyword, subject):
+    endpoint = f"list/model/tablestatistic/domain/{DOMAIN_SULUT}"
+    params = {"page": 1, "perpage": 100}
+    if subject:
+        params["subject"] = subject
+    data = _request_bps(endpoint, **params)
+    rows = _items(data)
+    values = data.get("data", []) if isinstance(data, dict) else []
+    paging = values[0] if isinstance(values, list) and values and isinstance(values[0], dict) else {}
+    try:
+        pages = min(max(int(paging.get("pages", 1)), 1), 10 if subject else 20)
+    except (TypeError, ValueError):
+        pages = 1
+    # shortcut: inspect 1,000 tables per subject or 2,000 across subjects; add indexed search above these limits.
+    for page in range(2, pages + 1):
+        rows.extend(_items(_request_bps(endpoint, **{**params, "page": page})))
+
+    years = re.findall(r"\b(?:19|20)[0-9]{2}\b", keyword)
+    topic = re.sub(r"\b(?:19|20)[0-9]{2}\b", "", keyword)
+    results = {}
+    for item in rows:
+        if subject and item.get("id_subject") is not None and str(item["id_subject"]) != str(subject):
+            continue
+        if not _matches(topic, f"{item['title']} {item.get('subject', '')}"):
+            continue
+        if years:
+            try:
+                oldest, latest = int(item["oldest_period"]), int(item["latest_period"])
+            except (KeyError, TypeError, ValueError):
+                if not _matches(keyword, item["title"]):
+                    continue
+            else:
+                if not all(oldest <= int(year) <= latest for year in years):
+                    continue
+        url = _csa_table_url(item, years[0] if len(years) == 1 else None)
+        if not url:
+            continue
+        results[url] = {**item, "title": _clean_html(item["title"]), "url": url,
+                        "date": str(item.get("last_update") or "")[:10], "source_type": "tabel resmi"}
+    ordered = sorted(results.values(), key=lambda item: item["title"].casefold())
+    ordered.sort(key=lambda item: str(item.get("last_update") or ""), reverse=True)
+    return ordered
+
+
+def cari_tabel_terbaru_bps(keyword: str, subject_url: str = None, limit: int = 2):
+    """Return matching tables in update-date descending, title ascending order.
+
+    The CSA endpoint includes static, dynamic and yearbook tables. Legacy static
+    tables and the optional website Server Action remain fallback sources.
     """
     kw_clean = keyword.lower().strip()
     if not kw_clean:
         return []
     limit = max(1, min(limit, 10))
     catalog = _official_url(subject_url) or "https://sulut.bps.go.id/id/statistics-table"
-    cache_key = hashlib.sha256(f"tables_v2_{catalog}_{kw_clean}_{limit}".encode()).hexdigest()
+    subject = parse_qs(urlsplit(catalog).query).get("subject", [None])[0]
+    if not subject or not subject.isdigit():
+        subject = next((str(value[1]) for term, value in sorted(KEYWORD_SUBJECT_MAP.items(),
+                        key=lambda pair: len(pair[0]), reverse=True)
+                        if f" {normalisasi_pencarian(term)} " in f" {normalisasi_pencarian(kw_clean)} "), None)
+    cache_key = hashlib.sha256(f"tables_v3_{catalog}_{kw_clean}_{limit}".encode()).hexdigest()
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+
+    results = _csa_tables(kw_clean, subject)
+    if not results and subject:
+        results = _csa_tables(kw_clean, None)
+    if results:
+        _cache_set(cache_key, results[:limit])
+        return results[:limit]
 
     data = _request_bps(f"list/model/statictable/domain/{DOMAIN_SULUT}/page/1", keyword=kw_clean)
     results = []

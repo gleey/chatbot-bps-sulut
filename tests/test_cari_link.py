@@ -24,7 +24,7 @@ class TestCariLink(unittest.TestCase):
 
     def test_alias_pdrb(self):
         _, link = cari_link_otomatis("pdrb")
-        self.assertIn("subject=530", link)
+        self.assertIn("subject=531", link)
 
     def test_alias_ekspor(self):
         _, link = cari_link_otomatis("ekspor")
@@ -58,6 +58,18 @@ class TestCariLink(unittest.TestCase):
     def test_case_insensitive(self):
         _, link = cari_link_otomatis("PARIWISATA")
         self.assertIn("subject=561", link)
+
+    def test_short_alias_does_not_match_inside_another_word(self):
+        kategori, _ = cari_link_otomatis("informasi")
+        self.assertNotEqual(kategori, "asi")
+
+    def test_full_indicator_names_route_like_abbreviations(self):
+        for query, subject in [("produk domestik regional bruto", 531),
+                               ("tingkat penghunian kamar", 561),
+                               ("air susu ibu", 522), ("bantuan sosial", 524)]:
+            with self.subTest(query=query):
+                _, link = cari_link_otomatis(query)
+                self.assertIn(f"subject={subject}", link)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ pengaduan.
 ## Fitur
 
 - **Konsultasi statistik** — pencarian Berita Resmi Statistik dan tabel BPS,
-  dilengkapi sumber serta tanggal jika tersedia.
+  dilengkapi tanggal jika tersedia dan dua tautan tabel teratas sesuai topik.
 - **AI dan fallback aturan** — klasifikasi kebutuhan melalui Gemini dengan
   failover API key/model serta mode tanpa AI.
 - **Dua provider WhatsApp** — Meta Cloud API dengan tombol interaktif dan Fonnte
@@ -243,9 +243,16 @@ end-to-end. Uji integrasi dengan akun provider dilakukan terpisah.
 - Backend memakai I/O sinkron dengan background thread. Lock sesi berlaku dalam
   satu proses; deployment multi-proses memerlukan koordinasi tambahan.
 - Angka jawaban berasal dari hasil retrieval resmi. Cache default 24 jam dan
-  pencarian terbatas pada halaman API yang diperoleh; hasil tidak menjamin data
-  terbaru dari seluruh katalog. Tautan katalog diberi label jika URL individual
-  tidak tersedia.
+  pencarian memakai katalog CSA (`tablestatistic`) untuk tabel statis, dinamis,
+  dan dataset buku tahunan. Singkatan indikator dicocokkan dengan nama lengkap;
+  pencarian lintas kategori menjadi cadangan jika subjek tidak menghasilkan
+  kecocokan atau kata kunci belum dipetakan. Maksimal 1.000 tabel per subjek atau
+  2.000 tabel lintas subjek diperiksa, diurutkan berdasarkan pembaruan menurun
+  dan judul menaik, lalu dipilih paling banyak dua yang sesuai topik. Rilis lama
+  dicari melalui filter kata kunci API. Tautan sumber API/PDF tidak ditambahkan
+  ke balasan. Tautan katalog diberi label jika URL individual tidak tersedia.
+  Pencarian lintas kategori tanpa cache memerlukan beberapa request dan dapat
+  melebihi tiga detik; kategori tanpa tabel tidak dijanjikan memiliki hasil.
 - Mode offline berarti tanpa Gemini. Retrieval angka BPS tetap memerlukan
   koneksi internet dan API key.
 - Reset mengarsipkan percakapan. Database lama mendapat backup sebelum migrasi;

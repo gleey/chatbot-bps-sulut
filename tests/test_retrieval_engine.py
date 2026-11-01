@@ -12,6 +12,8 @@ import bps_api
 import db
 import llm_engine as engine
 import main
+from config import BPS_CATEGORIES
+from urllib.parse import parse_qs, urlsplit
 from google.genai import errors
 
 
@@ -58,6 +60,129 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(result[0]["source_type"], "unduhan resmi")
         post.assert_not_called()
 
+    def test_csa_categories_find_tables_by_subject_without_title_keyword(self):
+        subjects = {}
+        for keyword, url in BPS_CATEGORIES.items():
+            subjects.setdefault(parse_qs(urlsplit(url).query)["subject"][0], keyword)
+        self.assertEqual(len(subjects), 37)
+        for subject, keyword in subjects.items():
+            with self.subTest(keyword=keyword):
+                rows = [
+                    {"id": "MTc4MSMy", "title": "Indikator A", "subject": keyword.title(),
+                     "id_subject": subject, "tablesource": "2", "last_update": "2026-09-01 10:00:00"},
+                    {"id": "MTc4MiMy", "title": "Indikator B", "subject": keyword.title(),
+                     "id_subject": subject, "tablesource": "2", "last_update": "2026-08-01 10:00:00"},
+                ]
+                with patch("bps_api._request_bps", return_value={"data": [{"pages": 1}, rows]}) as request, patch("bps_api.requests.post") as post:
+                    result = bps_api.cari_tabel_terbaru_bps(keyword, f"https://sulut.bps.go.id/id/statistics-table?subject={subject}")
+                    self.assertEqual([row["title"] for row in result], ["Indikator A", "Indikator B"])
+                    self.assertEqual(request.call_args.kwargs["subject"], str(subject))
+                    self.assertIn("tablestatistic", request.call_args.args[0])
+                    self.assertTrue(all("/statistics-table/2/" in row["url"] for row in result))
+                    post.assert_not_called()
+
+    def test_csa_paginates_before_selecting_two_top_tables(self):
+        def item(identifier, title, date, subject=521):
+            return {"id": identifier, "title": title, "subject": "Pendidikan", "id_subject": subject,
+                    "tablesource": "2", "last_update": date}
+        first = {"data": [{"pages": 2}, [item("old", "Sekolah lama", "2020-01-01")]]}
+        second = {"data": [{"pages": 2}, [
+            item("third", "Indikator Z", "2026-09-01"),
+            item("second", "Indikator B", "2026-09-01"),
+            item("first", "Indikator A", "2026-09-01"),
+            item("other-subject", "Data lain", "2026-10-01", subject=522),
+        ]]}
+        with patch("bps_api._request_bps", side_effect=[first, second]) as request:
+            result = bps_api.cari_tabel_terbaru_bps("data terkait pendidikan")
+        self.assertEqual([row["title"] for row in result], ["Indikator A", "Indikator B"])
+        self.assertEqual([call.kwargs["page"] for call in request.call_args_list], [1, 2])
+
+    def test_csa_requested_year_uses_available_range_and_table_url(self):
+        row = {"id": "example", "title": "Angka Partisipasi Sekolah", "subject": "Pendidikan",
+               "tablesource": "3", "oldest_period": 2020, "latest_period": 2025,
+               "last_update": "2026-09-01"}
+        with patch("bps_api._request_bps", return_value={"data": [{}, [row]]}):
+            result = bps_api.cari_tabel_terbaru_bps("pendidikan 2024")
+            self.assertEqual(len(result), 1)
+            self.assertTrue(result[0]["url"].endswith("?year=2024"))
+            self.assertEqual(bps_api.cari_tabel_terbaru_bps("pendidikan 2027"), [])
+
+    def test_csa_table_link_rejects_invalid_source_and_identifier(self):
+        for values in [{"tablesource": "9", "id": "valid"}, {"tablesource": "3", "id": None},
+                       {"tablesource": "3", "id": "../fake"}, {"tablesource": "3", "id": "https://evil.test"}]:
+            self.assertEqual(bps_api._csa_table_url({"title": "Indikator", **values}), "")
+
+    def test_csa_cache_skips_second_network_lookup(self):
+        row = {"id": "example", "title": "Indikator", "subject": "Pendidikan", "tablesource": "2"}
+        with patch("bps_api._request_bps", return_value={"data": [{}, [row]]}) as request:
+            first = bps_api.cari_tabel_terbaru_bps("pendidikan")
+            self.assertEqual(bps_api.cari_tabel_terbaru_bps("pendidikan"), first)
+            self.assertEqual(request.call_count, 1)
+
+    def test_csa_failure_keeps_legacy_api_fallback(self):
+        legacy = {"data": [{}, [{"title": "Data Pendidikan", "url": "https://sulut.bps.go.id/official-table"}]]}
+        with patch("bps_api._request_bps", side_effect=[None, None, legacy]) as request:
+            result = bps_api.cari_tabel_terbaru_bps("pendidikan")
+        self.assertEqual(result[0]["url"], "https://sulut.bps.go.id/official-table")
+        self.assertIn("statictable", request.call_args.args[0])
+
+    def test_aliases_match_full_official_titles_without_unrelated_substrings(self):
+        for query, title in [("kb", "Peserta Keluarga Berencana"),
+                             ("bansos", "Anggaran Bantuan Sosial Pangan"),
+                             ("pns", "Jumlah Pegawai Negeri Sipil"),
+                             ("wisman", "Jumlah Wisatawan Mancanegara"),
+                             ("tpk", "Tingkat Penghunian Kamar Bintang"),
+                             ("ikk", "Indeks Kemahalan Konstruksi"),
+                             ("pdrb", "Produk Domestik Regional Bruto"),
+                             ("suhu udara", "Keadaan Suhu di Manado"),
+                             ("data pendidkan sulut", "Angka Partisipasi Sekolah Pendidikan")]:
+            with self.subTest(query=query):
+                self.assertTrue(bps_api._matches(query, title))
+        self.assertFalse(bps_api._matches("asi", "Transportasi"))
+        self.assertFalse(bps_api._matches("penduduk 2025", "Penduduk 2023"))
+
+    def test_missing_subject_match_searches_across_categories(self):
+        row = {"id": "example", "title": "Produksi Kopra", "subject": "Pertanian",
+               "id_subject": 557, "tablesource": "2"}
+        with patch("bps_api._request_bps", side_effect=[None, {"data": [{}, [row]]}]) as request:
+            result = bps_api.cari_tabel_terbaru_bps("kopra", "https://sulut.bps.go.id/id/statistics-table?subject=538")
+        self.assertEqual(result[0]["title"], "Produksi Kopra")
+        self.assertNotIn("subject", request.call_args.kwargs)
+
+    def test_global_search_includes_tables_beyond_tenth_page(self):
+        def response(endpoint, **params):
+            rows = [{"id": "example", "title": "Fasilitas Olahraga", "tablesource": "2"}] if params["page"] == 13 else []
+            return {"data": [{"pages": 13}, rows]}
+        with patch("bps_api._request_bps", side_effect=response):
+            result = bps_api.cari_tabel_terbaru_bps("olahraga")
+        self.assertEqual(result[0]["title"], "Fasilitas Olahraga")
+
+    def test_config_and_api_subject_mappings_agree(self):
+        for keyword, (_, subject) in bps_api.KEYWORD_SUBJECT_MAP.items():
+            if keyword in BPS_CATEGORIES:
+                with self.subTest(keyword=keyword):
+                    self.assertEqual(str(subject), parse_qs(urlsplit(BPS_CATEGORIES[keyword]).query)["subject"][0])
+
+    def test_older_releases_are_searched_by_keyword_and_remain_relevant(self):
+        unrelated = {"data": [{}, [{"title": "Inflasi", "abstract": "Kelompok pendidikan naik"}]]}
+        relevant = {"data": [{}, [{"title": "Indeks Pembangunan Manusia", "abstract": "Nilai resmi fixture", "rl_date": "2025-01-01"}]]}
+        with patch("bps_api._request_bps", side_effect=[unrelated, relevant]) as request:
+            result = bps_api.cari_data_bps("saya ingin data IPM sulut")
+        self.assertEqual(result["naratif"], "Nilai resmi fixture")
+        self.assertEqual(request.call_args.kwargs, {"keyword": "indeks pembangunan manusia"})
+        with patch("bps_api._request_bps", return_value=unrelated):
+            self.assertIsNone(bps_api.cari_data_bps("pendidikan"))
+
+    def test_unmapped_topic_reaches_official_retrieval_from_chat(self):
+        phone = "6281234567890"
+        main.session_mgr.set_step(phone, "rule_based_tanya_data")
+        with patch("main.cari_data_bps", return_value=None), patch("main.cari_tabel_terbaru_bps", return_value=[
+            {"title": "Produksi Kopra", "url": "https://sulut.bps.go.id/id/statistics-table/2/example/kopra.html"}
+        ]) as search:
+            result = main.handle_incoming_message(phone, "kopra")
+        self.assertIn("Produksi Kopra", result["message"])
+        search.assert_called_once_with("kopra", subject_url=None, limit=2)
+
     def test_table_year_and_keyword_must_match(self):
         with patch("bps_api._request_bps", return_value={"data": [{}, [{"title": "Penduduk 2023"}]]}):
             self.assertEqual(bps_api.cari_tabel_terbaru_bps("penduduk 2025"), [])
@@ -101,7 +226,22 @@ class RetrievalTests(unittest.TestCase):
         self.assertIn("1,23 persen", result["message"])
         self.assertIn("2025-01-01", result["message"])
         self.assertIn("cache maksimal 24 jam", result["message"])
+        self.assertNotIn(official["link_pdf"], result["message"])
         self.assertEqual(sum(m["role"] == "user" for m in main.session_mgr.get_history(phone)), 1)
+
+    def test_topic_response_keeps_two_table_links_without_api_source_or_unavailable_claim(self):
+        phone = "6281234567890"
+        tables = [{"title": "Indikator A", "date": "2026-09-01", "url": "https://sulut.bps.go.id/id/statistics-table/2/a/a.html"},
+                  {"title": "Indikator B", "date": "2026-08-01", "url": "https://sulut.bps.go.id/id/statistics-table/2/b/b.html"}]
+        main.session_mgr.set_step(phone, "rule_based_tanya_data")
+        with patch("main.cari_data_bps", return_value=None), patch("main.cari_tabel_terbaru_bps", return_value=tables) as search:
+            result = main.handle_incoming_message(phone, "pendidikan")
+        search.assert_called_once_with("pendidikan", subject_url="https://sulut.bps.go.id/id/statistics-table?subject=521", limit=2)
+        self.assertEqual(result["message"].count("https://"), 2)
+        self.assertNotIn("belum tersedia dari API", result["message"])
+        self.assertNotIn("Sumber BPS:", result["message"])
+        self.assertLess(result["message"].index("Indikator A"), result["message"].index("Indikator B"))
+        self.assertEqual(main.session_mgr.get_or_create(phone)["step"], "tanya_kepuasan")
 
 
 class EngineTests(unittest.TestCase):

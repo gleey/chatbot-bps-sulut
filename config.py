@@ -187,11 +187,11 @@ BPS_CATEGORIES = {
     # 529: Penggunaan Waktu
     "penggunaan waktu": "https://sulut.bps.go.id/id/statistics-table?subject=529",
 
-    # 530: Makroekonomi & PDRB
+    # 530: Statistik Makroekonomi
     "statistik makroekonomi": "https://sulut.bps.go.id/id/statistics-table?subject=530",
-    "pdrb": "https://sulut.bps.go.id/id/statistics-table?subject=530",
 
-    # 531: Neraca Ekonomi
+    # 531: Neraca Ekonomi & PDRB
+    "pdrb": "https://sulut.bps.go.id/id/statistics-table?subject=531",
     "neraca ekonomi": "https://sulut.bps.go.id/id/statistics-table?subject=531",
     "pertumbuhan ekonomi": "https://sulut.bps.go.id/id/statistics-table?subject=531",
     "ekonomi": "https://sulut.bps.go.id/id/statistics-table?subject=531",

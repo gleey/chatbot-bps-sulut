@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from llm_engine import analisis_pesan, test_api_connection, set_offline_mode, is_offline_mode
 from session_manager import SessionManager
 from config import BPS_CATEGORIES
-from bps_api import cari_data_bps, cari_tabel_terbaru_bps
+from bps_api import cari_data_bps, cari_tabel_terbaru_bps, normalisasi_pencarian
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +44,14 @@ def cari_link_otomatis(teks_tujuan):
     2. Fuzzy match per kata
     3. Fallback homepage
     """
-    teks_bersih = teks_tujuan.lower().strip()
+    teks_bersih = normalisasi_pencarian(teks_tujuan)
     if not teks_bersih:
         return None, "https://sulut.bps.go.id"
 
     daftar_kategori = list(_CATEGORIES_LOWER.keys())
 
     # 1. Exact/substring
-    matches = [k for k in daftar_kategori if k in teks_bersih or teks_bersih in k]
+    matches = [k for k in daftar_kategori if f" {normalisasi_pencarian(k)} " in f" {teks_bersih} "]
     if matches:
         best = max(matches, key=len)
         return best, _CATEGORIES_LOWER[best]
@@ -63,7 +63,7 @@ def cari_link_otomatis(teks_tujuan):
     best_link = None
 
     for kategori in daftar_kategori:
-        kata_kategori = kategori.split()
+        kata_kategori = normalisasi_pencarian(kategori).split()
         score = 0
         for kata_user in kata_pengguna:
             if len(kata_user) > 2:
@@ -71,7 +71,7 @@ def cari_link_otomatis(teks_tujuan):
                     if kata_user == kata_kat:
                         score += 2
                     elif len(kata_user) > 3:
-                        if difflib.get_close_matches(kata_user, [kata_kat], n=1, cutoff=0.75):
+                        if difflib.get_close_matches(kata_user, [kata_kat], n=1, cutoff=0.88):
                             score += 1
         if score > best_score:
             best_score = score
@@ -179,47 +179,31 @@ def _step_rule_based_tanya_data(phone, msg, session):
         return selesai
 
     session_mgr.add_to_history(phone, "user", msg)
-    pesan_lower = msg.strip().lower()
     kategori_nama, link_bps = cari_link_otomatis(msg)
 
     if link_bps == "https://sulut.bps.go.id":
         link_bps = None
 
-    if not link_bps and not any(k in pesan_lower for k in ["bps", "sulut"]):
-        balasan = (
-            "Maaf, saya tidak menemukan kategori data yang sesuai.\n"
-            "Silakan coba dengan kata kunci lain, misal: kependudukan, inflasi, pertanian, pariwisata."
-        )
-        session_mgr.add_to_history(phone, "model", balasan)
-        return _reply(phone, balasan)
-
     session_mgr.update_info(phone, tujuan=msg)
     balasan = f"Hasil pencarian sumber BPS Sulut untuk *{msg[:200]}*:\n"
-    if link_bps:
-        bps_data = cari_data_bps(msg)
-        if bps_data and bps_data.get("found"):
-            balasan += f"\n📌 *{bps_data['title']}* ({bps_data['tanggal']}):\n{bps_data['naratif'][:1600]}\n"
-            if bps_data.get("link_pdf"):
-                balasan += f"Sumber BPS: {bps_data['link_pdf']}\n"
-            balasan += "Cuplikan rilis resmi; cache maksimal 24 jam. Periode mengikuti judul rilis.\n"
-        else:
-            balasan += "Angka resmi yang sesuai belum tersedia dari API saat ini.\n"
+    bps_data = cari_data_bps(msg)
+    if bps_data and bps_data.get("found"):
+        balasan += f"\n📌 *{bps_data['title']}* ({bps_data['tanggal']}):\n{bps_data['naratif'][:1600]}\n"
+        balasan += "Cuplikan rilis resmi; cache maksimal 24 jam. Periode mengikuti judul rilis.\n"
 
-        tabel_terbaru = cari_tabel_terbaru_bps(msg, subject_url=link_bps, limit=2)
-        if tabel_terbaru:
-            balasan += "\n📊 *Hasil Tabel Statistik BPS Sulut*:"
-            for idx, t in enumerate(tabel_terbaru, 1):
-                tgl = f" ({t['date']})" if t.get("date") else ""
-                balasan += f"\n{idx}. *{t['title']}*{tgl} ({t.get('source_type', 'sumber BPS')})\n🔗 {t['url']}"
-            balasan += "\n\n"
-        else:
-            balasan += (
-                f"\n📊 *Hasil Tabel Statistik BPS Sulut*:\n"
-                f"Tabel individual belum ditemukan. Telusuri katalog resmi berikut:\n"
-                f"🔗 {link_bps}\n\n"
-            )
+    tabel_terbaru = cari_tabel_terbaru_bps(msg, subject_url=link_bps, limit=2)
+    if tabel_terbaru:
+        balasan += "\n📊 *Hasil Tabel Statistik BPS Sulut*:"
+        for idx, t in enumerate(tabel_terbaru, 1):
+            tgl = f" ({t['date']})" if t.get("date") else ""
+            balasan += f"\n{idx}. *{t['title']}*{tgl} ({t.get('source_type', 'sumber BPS')})\n🔗 {t['url']}"
+        balasan += "\n\n"
     else:
-        balasan += f"\n🔗 Website BPS Sulut: https://sulut.bps.go.id\n\n"
+        balasan += (
+            f"\n📊 *Hasil Tabel Statistik BPS Sulut*:\n"
+            f"Tabel individual belum ditemukan. Telusuri katalog resmi berikut:\n"
+            f"🔗 {link_bps or 'https://sulut.bps.go.id/id/statistics-table'}\n\n"
+        )
 
     balasan += "Apakah Anda puas dengan hasil yang dikirimkan?"
     buttons = [
